@@ -1,0 +1,22 @@
+[package]
+name = "collector"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true }
+redis = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+env_logger = { workspace = true }
+log = { workspace = true }
+rustls = { workspace = true }
+axum = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+axum-client-ip = { workspace = true }
+bytes = { workspace = true }
+uuid = { workspace = true }
+rhiaqey-sdk-rs = { workspace = true }
+rhiaqey-metatrader = { workspace = true }
+ipnet = { workspace = true }

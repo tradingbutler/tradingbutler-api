@@ -1,0 +1,12 @@
+[package]
+name = "common"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+envconfig = "0.11.1"
+redis = { workspace = true }
+tokio = { workspace = true }
+async-stream = { workspace = true }
+futures-util = { workspace = true }
+axum-client-ip = { workspace = true }
