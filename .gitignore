@@ -1,2 +1,4 @@
 target
 .env
+rates.json
+brokers.json
