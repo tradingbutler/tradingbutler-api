@@ -10,19 +10,27 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
+    openssh-server \
+    htop \
+    btop \
+    locales \
     musl-tools \
     gcc-aarch64-linux-gnu \
     binutils-aarch64-linux-gnu \
     build-essential \
     git \
+    vim \
     make \
     cmake \
     perl \
+    golang \
     autoconf \
     ninja-build \
     curl \
     jq \
- && rm -rf /var/lib/apt/lists/*
+    sudo \
+ && rm -rf /var/lib/apt/lists/* \
+ && mkdir -p /var/run/sshd
 
 # Use zig as a drop-in C cross-compiler for aarch64-linux-musl.
 # arm64 base image is never used as a builder, so this is amd64-only.
@@ -38,7 +46,13 @@ RUN if [ "${TARGETPLATFORM}" = "linux/amd64" ]; then \
                   /usr/local/bin/aarch64-linux-musl-ar; \
     fi
 
-ENV CC_x86_64_unknown_linux_musl=musl-gcc \
+RUN sed -i 's/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \
+    && locale-gen \
+    && update-locale LANG=en_US.UTF-8
+
+ENV LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8 \
+    CC_x86_64_unknown_linux_musl=musl-gcc \
     CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc \
     AR_aarch64_unknown_linux_musl=aarch64-linux-musl-ar \
     CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc
