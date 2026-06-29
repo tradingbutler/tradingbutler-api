@@ -1,280 +1,285 @@
 name: Publish
 
 on:
-    push:
-        branches:
-            - master
+  push:
+    branches:
+      - master
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
-    cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 env:
-    CI: true
-    CARGO_TERM_COLOR: always
-    CARGO_TAG_NAME: "GitHub Actions"
-    CARGO_TAG_EMAIL: "github-actions@users.noreply.github.com"
+  CI: true
+  CARGO_TERM_COLOR: always
+  CARGO_TAG_NAME: "GitHub Actions"
+  CARGO_TAG_EMAIL: "github-actions@users.noreply.github.com"
 
 permissions:
-    contents: write
-    id-token: write
+  contents: write
+  id-token: write
 
 jobs:
-    Setup:
-        runs-on: self-hosted
-        steps:
-            - name: Install cargo verison
-              uses: dimitrmo/cargo-verison-action@v1.0.49
-              with:
-                  workspace: true
-                  skip-bump: true
+  Setup:
+    # runs-on: self-hosted
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Install cargo verison
+        uses: dimitrmo/cargo-verison-action@v1.0.49
+        with:
+          workspace: true
+          skip-bump: true
 
-            - name: Store binary
-              uses: actions/upload-artifact@v7
-              with:
-                  name: cargo-verison
-                  path: ~/.cargo/bin/cargo-verison
-                  retention-days: 1
-                  compression-level: 9
+      - name: Store binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: cargo-verison
+          path: ~/.cargo/bin/cargo-verison
+          retention-days: 1
+          compression-level: 9
 
-    Build:
-        runs-on: self-hosted
-        needs:
-            - Setup
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v7
-              with:
-                  submodules: recursive
-                  token: ${{ secrets.PAT_GITHUB_PUBLISH_ALL || github.token }}
+  Build:
+    # runs-on: self-hosted
+    runs-on: ubuntu-22.04
+    needs:
+      - Setup
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          token: ${{ secrets.PAT_GITHUB_PUBLISH_ALL || github.token }}
 
-            - name: Install Rust 1.96
-              uses: dtolnay/rust-toolchain@1.96.0
+      - name: Install Rust 1.96
+        uses: dtolnay/rust-toolchain@1.96.0
 
-            - name: Docker builds setup
-              uses: docker/setup-buildx-action@v4
-              with:
-                  driver-opts: network=host
+      - name: Docker builds setup
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver-opts: network=host
 
-            - name: Run tests
-              run: cargo test --locked --all-features
+      - name: Run tests
+        run: cargo test --locked --all-features
 
-            - name: Build release
-              run: cargo build --locked --all-features --release
+      - name: Build release
+        run: cargo build --locked --all-features --release
 
-    Build-Base:
-        runs-on: self-hosted
-        needs:
-            - Setup
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v7
-              with:
-                  submodules: recursive
-                  token: ${{ secrets.PAT_GITHUB_PUBLISH_ALL || github.token }}
+  Build-Base:
+    # runs-on: self-hosted
+    runs-on: ubuntu-22.04
+    needs:
+      - Setup
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          token: ${{ secrets.PAT_GITHUB_PUBLISH_ALL || github.token }}
 
-            - name: Log into registry
-              uses: docker/login-action@v4
-              with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Log into registry
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
 
-            - name: Set up Docker buildx
-              uses: docker/setup-buildx-action@v4
-              with:
-                  driver-opts: network=host
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver-opts: network=host
 
-            - name: Cargo Verison
-              id: verison
-              uses: dimitrmo/cargo-verison-action@v1.0.49
-              with:
-                  workspace: true
-                  git-tag-version: false
+      - name: Cargo Verison
+        id: verison
+        uses: dimitrmo/cargo-verison-action@v1.0.49
+        with:
+          workspace: true
+          git-tag-version: false
 
-            - name: Build and push base image
-              uses: docker/build-push-action@v7
-              with:
-                  context: .
-                  file: docker/base/Dockerfile
-                  platforms: linux/amd64,linux/arm64
-                  push: ${{ github.event_name != 'pull_request' }}
-                  tags: ${{ secrets.DOCKERHUB_USERNAME }}/tradingbutler-base:${{ steps.verison.outputs.next_version }},${{ secrets.DOCKERHUB_USERNAME }}/tradingbutler-base:latest
-                  cache-from: type=gha
-                  cache-to: type=gha,mode=max
+      - name: Build and push base image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/base/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/tradingbutler-base:${{ steps.verison.outputs.next_version }},${{ secrets.DOCKERHUB_USERNAME }}/tradingbutler-base:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-    Publish:
-        runs-on: self-hosted
-        needs:
-            - Build
-            - Build-Base
-        strategy:
-            matrix:
-                images:
-                    - image: "dimitrmok/tradingbutler-collector"
-                      binary: "collector"
-                      file: "docker/collector/Dockerfile"
-                    - image: "dimitrmok/tradingbutler-json-writer"
-                      binary: "json-writer"
-                      file: "docker/json-writer/Dockerfile"
-                    - image: "dimitrmok/tradingbutler-admin-api"
-                      binary: "admin-api"
-                      file: "docker/admin-api/Dockerfile"
-                    - image: "dimitrmok/tradingbutler-rate-streamer"
-                      binary: "rate-streamer"
-                      file: "docker/rate-streamer/Dockerfile"
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v7
-              with:
-                  submodules: recursive
-                  token: ${{ secrets.PAT_GITHUB_PUBLISH_ALL || github.token }}
+  Publish:
+    # runs-on: self-hosted
+    runs-on: ubuntu-22.04
+    needs:
+      - Build
+      - Build-Base
+    strategy:
+      matrix:
+        images:
+          - image: "dimitrmok/tradingbutler-collector"
+            binary: "collector"
+            file: "docker/collector/Dockerfile"
+          - image: "dimitrmok/tradingbutler-json-writer"
+            binary: "json-writer"
+            file: "docker/json-writer/Dockerfile"
+          - image: "dimitrmok/tradingbutler-admin-api"
+            binary: "admin-api"
+            file: "docker/admin-api/Dockerfile"
+          - image: "dimitrmok/tradingbutler-rate-streamer"
+            binary: "rate-streamer"
+            file: "docker/rate-streamer/Dockerfile"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          token: ${{ secrets.PAT_GITHUB_PUBLISH_ALL || github.token }}
 
-            - name: Docker buildx setup
-              uses: docker/setup-buildx-action@v4
-              with:
-                  driver-opts: network=host
+      - name: Docker buildx setup
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver-opts: network=host
 
-            - name: QEMU setup
-              uses: docker/setup-qemu-action@v4
+      - name: QEMU setup
+        uses: docker/setup-qemu-action@v4
 
-            - name: Cargo Verison Setup
-              id: cargo_verison_setup
-              continue-on-error: true
-              uses: actions/download-artifact@v8
-              with:
-                  name: cargo-verison
-                  path: ~/.cargo/bin/
+      - name: Cargo Verison Setup
+        id: cargo_verison_setup
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: cargo-verison
+          path: ~/.cargo/bin/
 
-            - name: Install cargo verison fallback
-              if: steps.cargo_verison_setup.outcome == 'failure'
-              uses: dimitrmo/cargo-verison-action@v1.0.49
-              with:
-                  workspace: true
-                  skip-bump: true
-                  git-tag-version: false
+      - name: Install cargo verison fallback
+        if: steps.cargo_verison_setup.outcome == 'failure'
+        uses: dimitrmo/cargo-verison-action@v1.0.49
+        with:
+          workspace: true
+          skip-bump: true
+          git-tag-version: false
 
-            - name: Cargo Verison permissions
-              run: |
-                  BIN_PATH="$(command -v cargo-verison || true)"
-                  if [ -n "$BIN_PATH" ]; then
-                    chmod +x "$BIN_PATH"
-                  elif [ -f "$HOME/.cargo/bin/cargo-verison" ]; then
-                    chmod +x "$HOME/.cargo/bin/cargo-verison"
-                  elif [ -f "/home/runner/.cargo/bin/cargo-verison" ]; then
-                    chmod +x "/home/runner/.cargo/bin/cargo-verison"
-                  else
-                    echo "cargo-verison binary not found yet; skipping chmod"
-                  fi
+      - name: Cargo Verison permissions
+        run: |
+          BIN_PATH="$(command -v cargo-verison || true)"
+          if [ -n "$BIN_PATH" ]; then
+            chmod +x "$BIN_PATH"
+          elif [ -f "$HOME/.cargo/bin/cargo-verison" ]; then
+            chmod +x "$HOME/.cargo/bin/cargo-verison"
+          elif [ -f "/home/runner/.cargo/bin/cargo-verison" ]; then
+            chmod +x "/home/runner/.cargo/bin/cargo-verison"
+          else
+            echo "cargo-verison binary not found yet; skipping chmod"
+          fi
 
-            - name: Cargo Verison
-              id: verison
-              uses: dimitrmo/cargo-verison-action@v1.0.49
-              with:
-                  workspace: true
-                  skip-install: true
-                  git-tag-version: false
+      - name: Cargo Verison
+        id: verison
+        uses: dimitrmo/cargo-verison-action@v1.0.49
+        with:
+          workspace: true
+          skip-install: true
+          git-tag-version: false
 
-            - name: Log into registry
-              uses: docker/login-action@v4
-              with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Log into registry
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-            - name: Extract Docker metadata
-              id: meta
-              uses: docker/metadata-action@v6
-              with:
-                  images: ${{ matrix.images.image }}
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ matrix.images.image }}
 
-            - name: Build and push docker image for ${{ matrix.images.binary }}
-              id: build-and-push
-              uses: docker/build-push-action@v7
-              with:
-                  context: .
-                  platforms: linux/amd64,linux/arm64
-                  push: ${{ github.event_name != 'pull_request' }}
-                  tags: ${{ matrix.images.image }}:${{ steps.verison.outputs.next_version }},${{ matrix.images.image }}:latest
-                  labels: ${{ steps.meta.outputs.labels }}
-                  file: ${{ matrix.images.file }}
-                  outputs: "type=registry"
-                  cache-from: type=gha
-                  cache-to: type=gha,mode=max
-                  build-args: |
-                      APP_NAME=${{ matrix.images.binary }}
-                      BASE_IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/tradingbutler-base:latest
+      - name: Build and push docker image for ${{ matrix.images.binary }}
+        id: build-and-push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ matrix.images.image }}:${{ steps.verison.outputs.next_version }},${{ matrix.images.image }}:latest
+          labels: ${{ steps.meta.outputs.labels }}
+          file: ${{ matrix.images.file }}
+          outputs: "type=registry"
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            APP_NAME=${{ matrix.images.binary }}
+            BASE_IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/tradingbutler-base:latest
 
-    Commit:
-        runs-on: self-hosted
-        needs:
-            - Build
-            - Publish
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v7
-              with:
-                  submodules: recursive
-                  token: ${{ secrets.PAT_GITHUB_PUBLISH_ALL || github.token }}
+  Commit:
+    # runs-on: self-hosted
+    runs-on: ubuntu-22.04
+    needs:
+      - Build
+      - Publish
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          token: ${{ secrets.PAT_GITHUB_PUBLISH_ALL || github.token }}
 
-            - name: Git setup
-              run: |
-                  git config user.name "$CARGO_TAG_NAME"
-                  git config user.email "$CARGO_TAG_EMAIL"
+      - name: Git setup
+        run: |
+          git config user.name "$CARGO_TAG_NAME"
+          git config user.email "$CARGO_TAG_EMAIL"
 
-            - name: Cargo Verison Setup
-              id: cargo_verison_setup
-              continue-on-error: true
-              uses: actions/download-artifact@v8
-              with:
-                  name: cargo-verison
-                  path: ~/.cargo/bin/
+      - name: Cargo Verison Setup
+        id: cargo_verison_setup
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: cargo-verison
+          path: ~/.cargo/bin/
 
-            - name: Install cargo verison fallback
-              if: steps.cargo_verison_setup.outcome == 'failure'
-              uses: dimitrmo/cargo-verison-action@v1.0.49
-              with:
-                  workspace: true
-                  skip-bump: true
+      - name: Install cargo verison fallback
+        if: steps.cargo_verison_setup.outcome == 'failure'
+        uses: dimitrmo/cargo-verison-action@v1.0.49
+        with:
+          workspace: true
+          skip-bump: true
 
-            - name: Cargo Verison permissions
-              run: |
-                  BIN_PATH="$(command -v cargo-verison || true)"
-                  if [ -n "$BIN_PATH" ]; then
-                    chmod +x "$BIN_PATH"
-                  elif [ -f "$HOME/.cargo/bin/cargo-verison" ]; then
-                    chmod +x "$HOME/.cargo/bin/cargo-verison"
-                  elif [ -f "/home/runner/.cargo/bin/cargo-verison" ]; then
-                    chmod +x "/home/runner/.cargo/bin/cargo-verison"
-                  else
-                    echo "cargo-verison binary not found yet; skipping chmod"
-                  fi
+      - name: Cargo Verison permissions
+        run: |
+          BIN_PATH="$(command -v cargo-verison || true)"
+          if [ -n "$BIN_PATH" ]; then
+            chmod +x "$BIN_PATH"
+          elif [ -f "$HOME/.cargo/bin/cargo-verison" ]; then
+            chmod +x "$HOME/.cargo/bin/cargo-verison"
+          elif [ -f "/home/runner/.cargo/bin/cargo-verison" ]; then
+            chmod +x "/home/runner/.cargo/bin/cargo-verison"
+          else
+            echo "cargo-verison binary not found yet; skipping chmod"
+          fi
 
-            - name: Cargo Verison
-              id: verison
-              uses: dimitrmo/cargo-verison-action@v1.0.49
-              with:
-                  workspace: true
-                  skip-install: true
-                  message: |
-                      Release %s
+      - name: Cargo Verison
+        id: verison
+        uses: dimitrmo/cargo-verison-action@v1.0.49
+        with:
+          workspace: true
+          skip-install: true
+          message: |
+            Release %s
+            
+            [skip ci]
 
-                      [skip ci]
+      - name: Extract git branch
+        run: |
+          GIT_BRANCH=${GITHUB_BASE_REF:-${GITHUB_REF#refs/heads/}}
+          echo "GIT_BRANCH=$GIT_BRANCH" >> $GITHUB_ENV
 
-            - name: Extract git branch
-              run: |
-                  GIT_BRANCH=${GITHUB_BASE_REF:-${GITHUB_REF#refs/heads/}}
-                  echo "GIT_BRANCH=$GIT_BRANCH" >> $GITHUB_ENV
+      - name: Git push
+        run: |
+          echo "Current branch $GIT_BRANCH"
+          git push origin $GIT_BRANCH
+          git push origin $GIT_BRANCH --tags
 
-            - name: Git push
-              run: |
-                  echo "Current branch $GIT_BRANCH"
-                  git push origin $GIT_BRANCH
-                  git push origin $GIT_BRANCH --tags
-
-            - name: Cleanup
-              uses: geekyeggo/delete-artifact@v6
-              with:
-                  name: cargo-verison
-                  failOnError: false
+      - name: Cleanup
+        uses: geekyeggo/delete-artifact@v6
+        with:
+          name: cargo-verison
+          failOnError: false
