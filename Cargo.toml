@@ -2,6 +2,10 @@
 resolver = "3"
 members = ["sdk", "metatrader", "crates/admin-api","crates/collector","crates/common", "crates/json-writer", "crates/rate-streamer"]
 
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
 [workspace.dependencies]
 redis = { version = "1.3.0", features = ["tokio-comp", "connection-manager", "streams", "tokio-rustls-comp"] }
 
