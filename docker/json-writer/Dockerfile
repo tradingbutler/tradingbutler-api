@@ -9,7 +9,6 @@ ARG APP_NAME=json-writer
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY sdk ./sdk
-COPY metatrader ./metatrader
 
 RUN RUST_TARGET="$(/get_rust_target.sh ${TARGETARCH})" && \
     rustup target add "${RUST_TARGET}" && \

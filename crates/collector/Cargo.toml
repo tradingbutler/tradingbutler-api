@@ -18,5 +18,4 @@ axum-client-ip = { workspace = true }
 bytes = { workspace = true }
 uuid = { workspace = true }
 rhiaqey-sdk-rs = { workspace = true }
-rhiaqey-metatrader = { workspace = true }
 ipnet = { workspace = true }
