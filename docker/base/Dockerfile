@@ -59,10 +59,10 @@ ENV LANG=en_US.UTF-8 \
 
 RUN <<EOF cat > /get_rust_target.sh
 #!/bin/sh
-case "$1" in
+case "\$1" in
     "amd64") echo "x86_64-unknown-linux-musl" ;;
     "arm64"|"aarch64") echo "aarch64-unknown-linux-musl" ;;
-    *) echo "Unsupported arch: $1" >&2; exit 1 ;;
+    *) echo "Unsupported arch: \$1" >&2; exit 1 ;;
 esac
 EOF
 RUN chmod +x /get_rust_target.sh

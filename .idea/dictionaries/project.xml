@@ -2,12 +2,15 @@
   <dictionary name="project">
     <words>
       <w>Valkey</w>
+      <w>Verison</w>
+      <w>buildx</w>
       <w>busygroup</w>
       <w>gbpusd</w>
       <w>mkstream</w>
       <w>rustls</w>
       <w>tradingbutler</w>
       <w>valkey</w>
+      <w>verison</w>
       <w>xgroup</w>
       <w>xread</w>
       <w>xreadgroup</w>
