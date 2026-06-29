@@ -43,7 +43,7 @@ jobs:
             - Setup
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
               with:
                   submodules: recursive
                   token: ${{ secrets.PAT_GITHUB_PUBLISH_ALL }}
@@ -68,7 +68,7 @@ jobs:
             - Setup
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
               with:
                   submodules: recursive
                   token: ${{ secrets.PAT_GITHUB_PUBLISH_ALL }}
@@ -127,7 +127,7 @@ jobs:
                       file: "docker/rate-streamer/Dockerfile"
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
               with:
                   submodules: recursive
                   token: ${{ secrets.PAT_GITHUB_PUBLISH_ALL }}
@@ -213,7 +213,7 @@ jobs:
             - Publish
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
               with:
                   submodules: recursive
                   token: ${{ secrets.PAT_GITHUB_PUBLISH_ALL }}
