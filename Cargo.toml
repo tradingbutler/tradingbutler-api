@@ -3,7 +3,7 @@ resolver = "3"
 members = ["sdk", "crates/admin-api","crates/collector","crates/common", "crates/json-writer", "crates/rate-streamer"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 
 [workspace.dependencies]
