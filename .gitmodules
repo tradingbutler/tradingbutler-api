@@ -1,6 +1,3 @@
-[submodule "metatrader"]
-	path = metatrader
-	url = git@github.com:rhiaqey/metatrader.git
 [submodule "sdk"]
 	path = sdk
 	url = https://github.com/rhiaqey/sdk-rs.git
