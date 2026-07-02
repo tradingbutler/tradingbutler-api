@@ -538,6 +538,14 @@ dependencies = [
 [[package]]
 name = "emulator"
 version = "0.1.4"
+dependencies = [
+ "anyhow",
+ "common",
+ "env_logger",
+ "log",
+ "rustls",
+ "tokio",
+]
 
 [[package]]
 name = "env_filter"

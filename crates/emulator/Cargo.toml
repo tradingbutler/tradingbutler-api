@@ -4,3 +4,9 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+log = { workspace = true }
+tokio = {  workspace = true }
+anyhow = { workspace = true }
+rustls ={ workspace = true }
+env_logger = { workspace = true }
+common = { workspace = true }
