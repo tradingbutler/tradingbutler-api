@@ -1,6 +1,6 @@
 use common::{RedisService, StreamPosition, env::Env};
 use futures_util::StreamExt;
-use log::{info, warn};
+use log::{debug, info, warn};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -55,7 +55,7 @@ impl JsonWriter {
                 msg = rx.recv() => {
                     match msg {
                         Some((broker_id, snapshot)) => {
-                            info!("[{}] received snapshot with {} symbols", broker_id, snapshot.len());
+                            debug!("[{}] received snapshot with {} symbols", broker_id, snapshot.len());
                             let broker_state = state.entry(broker_id).or_default();
                             for (symbol, json_str) in snapshot {
                                 match serde_json::from_str::<Value>(&json_str) {
