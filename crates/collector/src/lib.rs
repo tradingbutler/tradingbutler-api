@@ -9,11 +9,11 @@ use axum::{
 };
 use axum_client_ip::{ClientIp, ClientIpSource};
 use bytes::Bytes;
+use common::broker::Broker;
 use common::{RedisService, env::Env};
 use ipnet::IpNet;
 use log::{debug, info, warn};
 use redis::streams::StreamMaxlen;
-use common::broker::Broker;
 use rhiaqey_sdk_rs::message::MessageValue;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -54,6 +54,7 @@ impl Collector {
 
         let router = Router::new()
             .route("/ws", get(ws_handler))
+            .merge(common::health::router())
             .layer(self.ip_source.into_extension())
             .with_state(self.state);
 
@@ -185,7 +186,10 @@ async fn handle_binary_message(
             }
             "live" => {
                 let Some(b) = broker else {
-                    warn!("[{}] received live message before broker info, closing connection", conn_id);
+                    warn!(
+                        "[{}] received live message before broker info, closing connection",
+                        conn_id
+                    );
                     return Ok(CollectedValue::CloseConnection);
                 };
                 let json = value.to_string();

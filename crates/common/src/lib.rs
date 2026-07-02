@@ -1,8 +1,9 @@
+pub mod broker;
 pub mod env;
+pub mod health;
 mod protocol;
 mod service;
 mod version;
-pub mod broker;
 
 pub use service::{RedisService, StreamPosition};
 pub use version::VERSION;

@@ -4,6 +4,7 @@ use log::{info, warn};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -18,19 +19,24 @@ pub struct JsonWriter {
     redis: RedisService,
     snapshot_path: PathBuf,
     brokers_snapshot_path: PathBuf,
+    bind: SocketAddr,
 }
 
 impl JsonWriter {
     pub async fn init(env: &Env) -> anyhow::Result<Self> {
         let redis = RedisService::new(&env.redis_url).await?;
+        let bind: SocketAddr = format!("{}:{}", env.http_host, env.http_port).parse()?;
         Ok(Self {
             redis,
             snapshot_path: env.json_snapshot_path.clone(),
             brokers_snapshot_path: env.brokers_snapshot_path.clone(),
+            bind,
         })
     }
 
     pub async fn start(self) -> anyhow::Result<()> {
+        tokio::spawn(serve_healthz(self.bind));
+
         let (tx, mut rx) = mpsc::unbounded_channel::<(String, HashMap<String, String>)>();
 
         tokio::spawn(discover_brokers(
@@ -74,6 +80,19 @@ impl JsonWriter {
         }
 
         Ok(())
+    }
+}
+
+async fn serve_healthz(bind: SocketAddr) {
+    let router = common::health::router();
+    match tokio::net::TcpListener::bind(bind).await {
+        Ok(listener) => {
+            info!("healthz listening on {}", bind);
+            if let Err(err) = axum::serve(listener, router).await {
+                warn!("healthz server error: {err}");
+            }
+        }
+        Err(err) => warn!("failed to bind healthz listener on {bind}: {err}"),
     }
 }
 

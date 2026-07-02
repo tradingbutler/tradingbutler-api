@@ -1,6 +1,14 @@
 [workspace]
 resolver = "3"
-members = ["sdk", "crates/admin-api","crates/collector","crates/common", "crates/json-writer", "crates/rate-streamer"]
+members = [
+    "sdk",
+    "crates/emulator",
+    "crates/admin-api",
+    "crates/collector",
+    "crates/common",
+    "crates/json-writer",
+    "crates/rate-streamer"
+]
 
 [workspace.package]
 version = "0.1.1"

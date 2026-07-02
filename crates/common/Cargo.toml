@@ -11,3 +11,4 @@ serde = { workspace = true }
 async-stream = { workspace = true }
 futures-util = { workspace = true }
 axum-client-ip = { workspace = true }
+axum = { workspace = true }

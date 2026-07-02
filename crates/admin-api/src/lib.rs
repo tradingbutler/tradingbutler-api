@@ -42,7 +42,7 @@ impl AdminApi {
 
     pub async fn start(self) -> anyhow::Result<()> {
         let router = Router::new()
-            .route("/health", get(health))
+            .merge(common::health::router())
             .route("/api/brokers", get(list_brokers).post(create_broker))
             .route("/api/brokers/{id}", delete(delete_broker))
             .route("/api/brokers/{id}/key", post(regenerate_key))
@@ -60,10 +60,6 @@ impl AdminApi {
         axum::serve(listener, router).await?;
         Ok(())
     }
-}
-
-async fn health() -> StatusCode {
-    StatusCode::OK
 }
 
 /// Public view of a broker — never includes the API key (hash or plaintext).

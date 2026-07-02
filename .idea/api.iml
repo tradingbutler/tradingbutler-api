@@ -13,6 +13,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/rate-streamer/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/metatrader/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/sdk/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/emulator/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

@@ -47,6 +47,7 @@ impl RateStreamer {
 
         let router = Router::new()
             .route("/ws", get(ws_handler))
+            .merge(common::health::router())
             .with_state(state);
 
         let listener = tokio::net::TcpListener::bind(self.bind).await?;
