@@ -12,3 +12,5 @@ async-stream = { workspace = true }
 futures-util = { workspace = true }
 axum-client-ip = { workspace = true }
 axum = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }

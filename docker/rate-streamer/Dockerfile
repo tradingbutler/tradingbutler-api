@@ -21,4 +21,8 @@ COPY --from=builder /app-bin /app/service
 
 USER nonroot
 
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+    CMD ["/app/service", "healthcheck"]
+
 ENTRYPOINT ["/app/service"]
+CMD ["start"]
