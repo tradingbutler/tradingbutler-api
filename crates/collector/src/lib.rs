@@ -242,10 +242,10 @@ fn ip_allowed(ip: IpAddr, whitelist: &str) -> bool {
             if net.contains(&ip) {
                 return true;
             }
-        } else if let Ok(single) = entry.parse::<IpAddr>() {
-            if single == ip {
-                return true;
-            }
+        } else if let Ok(single) = entry.parse::<IpAddr>()
+            && single == ip
+        {
+            return true;
         }
     }
     false

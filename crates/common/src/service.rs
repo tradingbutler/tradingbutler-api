@@ -109,17 +109,15 @@ impl RedisService {
             loop {
                 let mut conn = blocking_connection(&client).await;
 
-                loop {
-                    match conn.xread_options::<&str, &str, StreamReadReply>(&[stream_key.as_str()], &[last_id.as_str()], &opts).await {
-                        Ok(reply) => {
-                            for key in reply.keys {
-                                for entry in key.ids {
-                                    last_id = entry.id.clone();
-                                    yield entry;
-                                }
-                            }
+                while let Ok(reply) = conn
+                    .xread_options::<&str, &str, StreamReadReply>(&[stream_key.as_str()], &[last_id.as_str()], &opts)
+                    .await
+                {
+                    for key in reply.keys {
+                        for entry in key.ids {
+                            last_id = entry.id.clone();
+                            yield entry;
                         }
-                        Err(_) => break, // reconnect on hard error
                     }
                 }
             }
@@ -226,19 +224,14 @@ impl RedisService {
                 }
 
                 // ">" means "not yet delivered to any consumer in this group".
-                loop {
-                    match conn
-                        .xread_options::<&str, &str, StreamReadReply>(&[stream_key.as_str()], &[">"], &new_opts)
-                        .await
-                    {
-                        Ok(reply) => {
-                            for key in reply.keys {
-                                for entry in key.ids {
-                                    yield entry;
-                                }
-                            }
+                while let Ok(reply) = conn
+                    .xread_options::<&str, &str, StreamReadReply>(&[stream_key.as_str()], &[">"], &new_opts)
+                    .await
+                {
+                    for key in reply.keys {
+                        for entry in key.ids {
+                            yield entry;
                         }
-                        Err(_) => break, // reconnect on hard error
                     }
                 }
             }
