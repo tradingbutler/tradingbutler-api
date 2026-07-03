@@ -75,11 +75,11 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 match tick {
                     Ok(json) => {
                         debug!("[{conn_id}] forwarding message to websocket subscriber");
-                        if socket
+                        if let Err(err) = socket
                             .send(Message::Binary(json.as_bytes().to_vec().into()))
                             .await
-                            .is_err()
                         {
+                            warn!("[{conn_id}] error sending binary: {err}");
                             break;
                         }
                     }
@@ -95,8 +95,13 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
             }
             incoming = socket.recv() => {
                 match incoming {
-                    Some(Ok(Message::Close(_))) | None => break,
-                    _ => {}
+                    Some(Ok(Message::Close(_))) | None => {
+                        debug!("[{conn_id}] closing websocket connection");
+                        break
+                    },
+                    _ => {
+                        warn!("[{conn_id}] unexpected message received. not closed or none");
+                    }
                 }
             }
         }
