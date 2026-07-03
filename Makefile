@@ -31,7 +31,8 @@ prod:
 docker-base:
 	docker buildx build --platform linux/amd64,linux/arm64 \
 	  -f docker/base/Dockerfile \
-	  -t tradingbutler-base .
+	  -t tradingbutler-base \
+	  --load .
 
 docker-collector:
 	docker buildx build --platform linux/amd64,linux/arm64 \

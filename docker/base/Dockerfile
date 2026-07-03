@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1
-FROM rust:1.96-slim-trixie AS base-image
+FROM rust:1.96.1-slim-trixie AS base-image
 
 # Exposed by BuildKit; used to install the right cross-compiler per platform.
 ARG TARGETPLATFORM
-ARG ZIG_VERSION=0.13.0
+ARG ZIG_VERSION=0.16.0
 
 WORKDIR /app
 
@@ -35,9 +35,9 @@ RUN apt-get update && apt-get install -y \
 # Use zig as a drop-in C cross-compiler for aarch64-linux-musl.
 # arm64 base image is never used as a builder, so this is amd64-only.
 RUN if [ "${TARGETPLATFORM}" = "linux/amd64" ]; then \
-      curl -fsSL https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar.xz \
+      curl -fsSL https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz \
         | tar -xJ -C /opt \
-      && ln -sf /opt/zig-linux-x86_64-${ZIG_VERSION}/zig /usr/local/bin/zig \
+      && ln -sf /opt/zig-x86_64-linux-${ZIG_VERSION}/zig /usr/local/bin/zig \
       && printf '#!/bin/sh\nexec zig cc --target=aarch64-linux-musl $(printf "%%s\\n" "$@" | sed "/^--target=/d")\n' \
            > /usr/local/bin/aarch64-linux-musl-gcc \
       && printf '#!/bin/sh\nexec zig ar "$@"\n' \
