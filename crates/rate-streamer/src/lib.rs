@@ -71,6 +71,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     loop {
         tokio::select! {
             tick = rx.recv() => {
+                debug!("[{conn_id}] tick received");
                 match tick {
                     Ok(json) => {
                         debug!("[{conn_id}] forwarding message to websocket subscriber");
@@ -86,7 +87,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                         warn!("[{conn_id}] lagged by {n} messages, disconnecting");
                         break;
                     }
-                    Err(_) => break,
+                    Err(err) => {
+                        warn!("[{conn_id}] error receiving message {err}");
+                        break
+                    },
                 }
             }
             incoming = socket.recv() => {
