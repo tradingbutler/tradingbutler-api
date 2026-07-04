@@ -15,9 +15,9 @@ broker info + live ticks into the `collector`; the collector writes them into pe
 MT5 terminals (rhiaqey metatrader DLL)
   └─ WebSocket  →  collector  (/ws, binary GatewayMessage frames)
                       │
-                      ├─ category "broker" → HSET tradingbutler:broker:{id}
-                      └─ category "live"   → XADD tradingbutler:{id}:live  (maxlen ~1000)
-                                           + HSET tradingbutler:{id}:snapshot  field=key
+                      ├─ category "broker" → HSET {ns}:broker:{id}
+                      └─ category "live"   → XADD {ns}:{id}:live  (maxlen ~1000)
+                                           + HSET {ns}:{id}:snapshot  field=key
                                               │
                                        Redis Streams (per broker)
                                               ├─ json-writer    → writes rates.json + brokers.json (SSR)
@@ -55,32 +55,36 @@ Field names on the wire are short (serde renames): `key`, `val`, `tms`, `tag`, `
 `uid`, `cid`. The collector dispatches on `cat` (category):
 
 - **`broker`** — `val` is a `Broker { id, nm→name, ak→api_key }`. The collector stores it at
-  `tradingbutler:broker:{id}` (hash: `id`, `name`, `api_key`) and remembers it for the connection.
+  `{ns}:broker:{id}` (hash: `id`, `name`, `api_key`) and remembers it for the connection.
   The DLL **SHA-512–hashes** the API key before sending; `api_key` on the wire is the hex digest.
 - **`live`** — must arrive after a `broker` message on the same connection. `val` is an `MT5Event`
   (symbol/timeframe/info/tick/diffs). The collector, in one pipeline, `XADD`s to
-  `tradingbutler:{id}:live` (trimmed to ~1000 entries) and `HSET`s the latest value into
-  `tradingbutler:{id}:snapshot` keyed by the message `key` (the symbol).
+  `{ns}:{id}:live` (trimmed to ~1000 entries) and `HSET`s the latest value into
+  `{ns}:{id}:snapshot` keyed by the message `key` (the symbol).
 - Other categories (e.g. `historical:*`) are logged and ignored by the collector today.
 
 ## Redis key layout
 
+`{ns}` is the `REDIS_NAMESPACE` env var (see below); `RedisService` prepends it automatically, so
+every crate builds/consumes **bare** keys (`broker:{id}`, `{id}:live`, `{id}:snapshot`) and never
+hardcodes the namespace itself.
+
 | Key | Type | Written by | Contents |
 |---|---|---|---|
-| `tradingbutler:broker:{id}` | hash | collector | `id`, `name`, `api_key` (sha512 hex) |
-| `tradingbutler:{id}:live` | stream | collector | fields `conn_id`, `key`, `data` (JSON tick); maxlen ~1000 |
-| `tradingbutler:{id}:snapshot` | hash | collector | field = symbol/key → latest tick JSON |
+| `{ns}:broker:{id}` | hash | collector | `id`, `name`, `api_key` (sha512 hex) |
+| `{ns}:{id}:live` | stream | collector | fields `conn_id`, `key`, `data` (JSON tick); maxlen ~1000 |
+| `{ns}:{id}:snapshot` | hash | collector | field = symbol/key → latest tick JSON |
 
 The old `latest:{symbol}` / `baseline:{symbol}` keys and the `prices` pub/sub channel no longer exist.
 
 ## json-writer behavior
 
-- A discovery loop scans `tradingbutler:broker:*` every **30s**. For each broker it (a) refreshes
+- A discovery loop scans `broker:*` every **30s**. For each broker it (a) refreshes
   `brokers.json` (all broker hashes, **with `api_key` stripped**) and (b) the first time it sees a
-  broker, ensures a `json-writer` consumer group on `tradingbutler:{id}:live` (`NewOnly`) and spawns
+  broker, ensures a `json-writer` consumer group on `{id}:live` (`NewOnly`) and spawns
   a reader task.
 - Each reader uses `group_reader` (consumer `json-writer-{id}`); on every entry it re-reads the
-  whole `tradingbutler:{id}:snapshot` hash, forwards it to the writer task, and `XACK`s.
+  whole `{id}:snapshot` hash, forwards it to the writer task, and `XACK`s.
 - The writer task accumulates `broker_id → symbol → value` and writes `rates.json` **atomically**
   (write to `*.tmp`, then rename). `brokers.json` is written the same way.
 - Output paths come from `JSON_SNAPSHOT_FILE` (`rates.json`) and `BROKERS_SNAPSHOT_FILE`
@@ -94,7 +98,7 @@ All errors are JSON `{ "error": "…" }`.
 - `GET /api/brokers` — list as `[{ id, name, has_key, allowed_ips }]`. Never returns the key/hash;
   `has_key` is false when the key was revoked or never set.
 - `POST /api/brokers` `{ id, name, allowed_ips? }` — create a broker. Generates a random plaintext
-  key, stores `tradingbutler:broker:{id}` with `api_key` = its **SHA-512 hex digest** (same hashing
+  key, stores `{ns}:broker:{id}` with `api_key` = its **SHA-512 hex digest** (same hashing
   the MT5 DLL applies, so a terminal authenticating with the plaintext key matches), and returns
   `{ id, name, api_key }` **once** — the plaintext is never persisted. `409` if the id exists, `400`
   on empty fields, an id containing whitespace/`:`, or an invalid IP/CIDR.
@@ -119,27 +123,36 @@ the whitelist) is a follow-up.
 reads (`XREAD BLOCK`) use a **dedicated** connection with the response timeout disabled, because
 redis 1.3's 500ms default would abort `BLOCK` early.
 
-```rust
-let mut svc = RedisService::new(&env.redis_url).await?;
+Every key-bearing method takes and returns **bare** keys (no namespace) — `RedisService` prepends
+`REDIS_NAMESPACE` (see below) internally via its private `key()` helper, and `keys()` strips it
+back off returned matches. Callers never build namespaced strings themselves, with one exception:
+`pipeline()` hands the closure a raw `redis::Pipeline`, which bypasses `RedisService` entirely, so
+code using it must namespace its own keys with the public `RedisService::key()` before passing them
+to `pipe.xadd_maxlen` / `pipe.hset` / `pipe.del` (see `collector`'s live-message handler and
+`admin-api`'s `delete_broker` for examples).
 
-// producer
-svc.xadd("tradingbutler:b1:live", &[("key","EURUSD"),("data","{…}")], Some(1000)).await?;
+```rust
+let mut svc = RedisService::new(&env.redis_url, &env.redis_namespace).await?;
+
+// producer — key is bare; svc namespaces it to `{REDIS_NAMESPACE}:b1:live`
+svc.xadd("b1:live", &[("key","EURUSD"),("data","{…}")], Some(1000)).await?;
 
 // fan-out reader (every consumer gets every entry); StreamPosition::{Beginning,NewOnly,After}
-let mut r = svc.stream_reader("tradingbutler:b1:live", StreamPosition::NewOnly);
+let mut r = svc.stream_reader("b1:live", StreamPosition::NewOnly);
 
 // load-balanced reader (each entry to one consumer); call ack() after processing
 svc.ensure_consumer_group("…:live", "json-writer", StreamPosition::NewOnly).await?;
 let mut g = svc.group_reader("…:live", "json-writer", "json-writer-b1");
 ```
 
-Also exposes `pipeline`, `set`, `hset`, `del`, `hgetall`, `keys`, and raw `client()`.
+Also exposes `pipeline`, `set`, `hset`, `del`, `hgetall`, `keys`, `key`, and raw `client()`.
 
 ## Environment (`crates/common/src/env.rs`, via `envconfig`)
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `REDIS_URL` | `redis://127.0.0.1` | Valkey/Redis connection string |
+| `REDIS_NAMESPACE` | `tradingbuttler` | Prefix `RedisService` prepends to every key (`{ns}:broker:{id}`, `{ns}:{id}:live`, …) |
 | `HTTP_HOST` | `0.0.0.0` | Bind host for collector / admin-api |
 | `HTTP_PORT` | `20000` | Bind port for collector / admin-api |
 | `IP_SOURCE` | `ConnectInfo` | `axum-client-ip` source for resolving client IP |

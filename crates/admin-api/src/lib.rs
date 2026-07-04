@@ -11,7 +11,7 @@ use sha2::{Digest, Sha512};
 use std::net::{IpAddr, SocketAddr};
 use uuid::Uuid;
 
-/// Brokers are stored as a hash at `tradingbutler:broker:{id}` with fields
+/// Brokers are stored as a hash at `{namespace}:broker:{id}` with fields
 /// `id`, `name`, `api_key`, `allowed_ips`.
 ///
 /// - `api_key` is the **SHA-512 hex digest** of the plaintext key — the same
@@ -21,7 +21,7 @@ use uuid::Uuid;
 /// - `allowed_ips` is a comma-separated list of IPs/CIDRs permitted to connect
 ///   for this broker. Empty means no restriction. Enforcement lives in the
 ///   `collector`; admin-api is the source of truth. See `api/CLAUDE.md`.
-const BROKER_KEY_PREFIX: &str = "tradingbutler:broker:";
+const BROKER_KEY_PREFIX: &str = "broker:";
 
 fn broker_key(id: &str) -> String {
     format!("{BROKER_KEY_PREFIX}{id}")
@@ -35,7 +35,7 @@ pub struct AdminApi {
 
 impl AdminApi {
     pub async fn init(env: &Env) -> anyhow::Result<Self> {
-        let redis = RedisService::new(&env.redis_url).await?;
+        let redis = RedisService::new(&env.redis_url, &env.redis_namespace).await?;
         let bind: SocketAddr = format!("{}:{}", env.http_host, env.http_port).parse()?;
         Ok(Self { redis, bind })
     }
@@ -292,13 +292,16 @@ async fn delete_broker(
         return Err(ApiError::NotFound(format!("broker '{id}' not found")));
     }
 
-    let live = format!("tradingbutler:{id}:live");
-    let snapshot = format!("tradingbutler:{id}:snapshot");
+    let live = format!("{id}:live");
+    let snapshot = format!("{id}:snapshot");
+    let ns_key = redis.key(&key);
+    let ns_live = redis.key(&live);
+    let ns_snapshot = redis.key(&snapshot);
     redis
         .pipeline(|pipe| {
-            pipe.del(key.as_str());
-            pipe.del(live.as_str());
-            pipe.del(snapshot.as_str());
+            pipe.del(ns_key.as_str());
+            pipe.del(ns_live.as_str());
+            pipe.del(ns_snapshot.as_str());
         })
         .await?;
 

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-const BROKER_KEY_PREFIX: &str = "tradingbutler:broker:";
+const BROKER_KEY_PREFIX: &str = "broker:";
 const CONSUMER_GROUP: &str = "json-writer";
 const DISCOVERY_INTERVAL: Duration = Duration::from_secs(30);
 const BROKERS_WRITE_INTERVAL: Duration = Duration::from_secs(60);
@@ -24,7 +24,7 @@ pub struct JsonWriter {
 
 impl JsonWriter {
     pub async fn init(env: &Env) -> anyhow::Result<Self> {
-        let redis = RedisService::new(&env.redis_url).await?;
+        let redis = RedisService::new(&env.redis_url, &env.redis_namespace).await?;
         let bind: SocketAddr = format!("{}:{}", env.http_host, env.http_port).parse()?;
         Ok(Self {
             redis,
@@ -147,8 +147,8 @@ async fn discover_brokers(
             if active.insert(broker_id.clone()) {
                 info!("discovered broker {}, joining consumer group", broker_id);
 
-                let stream_key = format!("tradingbutler:{}:live", broker_id);
-                let snapshot_key = format!("tradingbutler:{}:snapshot", broker_id);
+                let stream_key = format!("{}:live", broker_id);
+                let snapshot_key = format!("{}:snapshot", broker_id);
                 let mut setup_redis = redis.clone();
 
                 if let Err(e) = setup_redis
@@ -176,8 +176,8 @@ async fn discover_brokers(
                 let bid = broker_id.clone();
 
                 tokio::spawn(async move {
-                    let live_key = format!("tradingbutler:{}:live", bid);
-                    let snapshot_key = format!("tradingbutler:{}:snapshot", bid);
+                    let live_key = format!("{}:live", bid);
+                    let snapshot_key = format!("{}:snapshot", bid);
                     let stream = reader_redis.group_reader(
                         live_key.clone(),
                         CONSUMER_GROUP,

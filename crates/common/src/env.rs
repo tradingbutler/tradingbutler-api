@@ -7,6 +7,9 @@ pub struct Env {
     #[envconfig(from = "REDIS_URL", default = "redis://127.0.0.1")]
     pub redis_url: String,
 
+    #[envconfig(from = "REDIS_NAMESPACE", default = "tradingbuttler")]
+    pub redis_namespace: String,
+
     #[envconfig(from = "HTTP_HOST", default = "0.0.0.0")]
     pub http_host: String,
 

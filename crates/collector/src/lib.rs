@@ -34,7 +34,7 @@ pub struct Collector {
 
 impl Collector {
     pub async fn init(env: &Env) -> anyhow::Result<Self> {
-        let redis = RedisService::new(&env.redis_url).await?;
+        let redis = RedisService::new(&env.redis_url, &env.redis_namespace).await?;
         let bind: SocketAddr = format!("{}:{}", env.http_host, env.http_port).parse()?;
         let ip_source = env.ip_source.clone();
 
@@ -159,7 +159,7 @@ async fn handle_binary_message(
         Some(category) => match category.to_lowercase().as_str() {
             "broker" => {
                 let broker: Broker = serde_json::from_value(value)?;
-                let broker_key = format!("tradingbutler:broker:{}", broker.id);
+                let broker_key = format!("broker:{}", broker.id);
                 let fields = state.redis.write().await.hgetall(&broker_key).await?;
                 if fields.is_empty() {
                     bail!(
@@ -193,15 +193,15 @@ async fn handle_binary_message(
                     return Ok(CollectedValue::CloseConnection);
                 };
                 let json = value.to_string();
-                let stream_key = format!("tradingbutler:{}:live", b.id);
-                let snapshot_key = format!("tradingbutler:{}:snapshot", b.id);
-                state
-                    .redis
-                    .write()
-                    .await
+                let stream_key = format!("{}:live", b.id);
+                let snapshot_key = format!("{}:snapshot", b.id);
+                let mut redis = state.redis.write().await;
+                let ns_stream_key = redis.key(&stream_key);
+                let ns_snapshot_key = redis.key(&snapshot_key);
+                redis
                     .pipeline(|pipe| {
                         pipe.xadd_maxlen(
-                            &stream_key,
+                            &ns_stream_key,
                             StreamMaxlen::Approx(1_000),
                             "*",
                             &[
@@ -210,7 +210,7 @@ async fn handle_binary_message(
                                 ("data", json.as_str()),
                             ],
                         );
-                        pipe.hset(&snapshot_key, message.key.as_str(), json.as_str());
+                        pipe.hset(&ns_snapshot_key, message.key.as_str(), json.as_str());
                     })
                     .await?;
                 info!(

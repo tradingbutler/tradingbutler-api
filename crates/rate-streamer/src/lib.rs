@@ -15,7 +15,7 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
-const BROKER_KEY_PREFIX: &str = "tradingbutler:broker:";
+const BROKER_KEY_PREFIX: &str = "broker:";
 const DISCOVERY_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Slow clients that fall behind by this many messages are disconnected.
@@ -33,7 +33,7 @@ pub struct RateStreamer {
 
 impl RateStreamer {
     pub async fn init(env: &Env) -> anyhow::Result<Self> {
-        let redis = RedisService::new(&env.redis_url).await?;
+        let redis = RedisService::new(&env.redis_url, &env.redis_namespace).await?;
         let bind: SocketAddr = format!("{}:{}", env.http_host, env.http_port).parse()?;
         Ok(Self { redis, bind })
     }
@@ -146,7 +146,7 @@ async fn discover_brokers(mut redis: RedisService, tx: broadcast::Sender<Arc<Str
                 let bid = broker_id.clone();
 
                 tokio::spawn(async move {
-                    let live_key = format!("tradingbutler:{}:live", bid);
+                    let live_key = format!("{}:live", bid);
                     let stream = reader.stream_reader(live_key, StreamPosition::NewOnly);
                     futures_util::pin_mut!(stream);
 

@@ -47,15 +47,30 @@ impl StreamPosition {
 #[derive(Clone)]
 pub struct RedisService {
     client: Client,
+    namespace: String,
     conn: ConnectionManager,
 }
 
 impl RedisService {
-    pub async fn new(url: &str) -> Result<Self, RedisError> {
+    pub async fn new(url: &str, namespace: &str) -> Result<Self, RedisError> {
         let client = Client::open(url)?;
         let config = ConnectionManagerConfig::new().set_response_timeout(None);
         let conn = ConnectionManager::new_with_config(client.clone(), config).await?;
-        Ok(Self { client, conn })
+        Ok(Self {
+            client,
+            namespace: namespace.to_string(),
+            conn,
+        })
+    }
+
+    /// Prefix a bare key with the configured namespace (e.g. `broker:1` ->
+    /// `tradingbuttler:broker:1`). Every method on this type that takes a Redis
+    /// key does this internally; use this directly only when building a raw
+    /// `redis::Pipeline` (see [`pipeline`](Self::pipeline)), which bypasses
+    /// `RedisService` and needs already-namespaced keys.
+    #[inline]
+    pub fn key(&self, key: &str) -> String {
+        format!("{}:{}", self.namespace, key)
     }
 
     /// Append an entry to a stream. Returns the auto-generated entry ID.
@@ -66,13 +81,14 @@ impl RedisService {
         fields: &[(&str, &str)],
         max_len: Option<usize>,
     ) -> Result<String, RedisError> {
+        let stream = self.key(stream);
         match max_len {
             Some(n) => {
                 self.conn
-                    .xadd_maxlen(stream, StreamMaxlen::Approx(n), "*", fields)
+                    .xadd_maxlen(&stream, StreamMaxlen::Approx(n), "*", fields)
                     .await
             }
-            None => self.conn.xadd(stream, "*", fields).await,
+            None => self.conn.xadd(&stream, "*", fields).await,
         }
     }
 
@@ -99,7 +115,7 @@ impl RedisService {
         position: StreamPosition,
     ) -> impl Stream<Item = Result<StreamId, RedisError>> + use<K> {
         let client = self.client.clone();
-        let stream_key = stream_key.into();
+        let stream_key = self.key(&stream_key.into());
         let initial_id = position.into_id();
 
         try_stream! {
@@ -136,10 +152,11 @@ impl RedisService {
         group: &str,
         start_from: StreamPosition,
     ) -> Result<(), RedisError> {
+        let stream = self.key(stream);
         let id = start_from.into_id();
         let result: Result<redis::Value, RedisError> = redis::cmd("XGROUP")
             .arg("CREATE")
-            .arg(stream)
+            .arg(&stream)
             .arg(group)
             .arg(&id)
             .arg("MKSTREAM")
@@ -182,7 +199,7 @@ impl RedisService {
         consumer: C,
     ) -> impl Stream<Item = Result<StreamId, RedisError>> + use<K, G, C> {
         let client = self.client.clone();
-        let stream_key = stream_key.into();
+        let stream_key = self.key(&stream_key.into());
         let group = group.into();
         let consumer = consumer.into();
 
@@ -245,10 +262,13 @@ impl RedisService {
         group: &str,
         ids: &[&str],
     ) -> Result<usize, RedisError> {
-        self.conn.xack(stream, group, ids).await
+        self.conn.xack(self.key(stream), group, ids).await
     }
 
     /// Execute multiple commands in a single round trip.
+    ///
+    /// Unlike the other methods on this type, `build` gets a raw `redis::Pipeline`
+    /// and is responsible for namespacing its own keys via [`key`](Self::key).
     pub async fn pipeline<F>(&mut self, build: F) -> Result<(), RedisError>
     where
         F: FnOnce(&mut redis::Pipeline),
@@ -260,17 +280,17 @@ impl RedisService {
 
     /// Store a string value at `key`.
     pub async fn set(&mut self, key: &str, value: &str) -> Result<(), RedisError> {
-        self.conn.set(key, value).await
+        self.conn.set(self.key(key), value).await
     }
 
     /// Store multiple fields in a hash at `key`.
     pub async fn hset(&mut self, key: &str, fields: &[(&str, &str)]) -> Result<(), RedisError> {
-        self.conn.hset_multiple(key, fields).await
+        self.conn.hset_multiple(self.key(key), fields).await
     }
 
     /// Delete one or more keys.
     pub async fn del(&mut self, key: &str) -> Result<(), RedisError> {
-        self.conn.del(key).await
+        self.conn.del(self.key(key)).await
     }
 
     /// Return all fields and values of a hash.
@@ -278,12 +298,18 @@ impl RedisService {
         &mut self,
         key: &str,
     ) -> Result<std::collections::HashMap<String, String>, RedisError> {
-        self.conn.hgetall(key).await
+        self.conn.hgetall(self.key(key)).await
     }
 
-    /// Return all keys matching `pattern`.
+    /// Return all keys matching `pattern`, with the namespace prefix stripped
+    /// back off so callers only ever see bare keys.
     pub async fn keys(&mut self, pattern: &str) -> Result<Vec<String>, RedisError> {
-        self.conn.keys(pattern).await
+        let keys: Vec<String> = self.conn.keys(self.key(pattern)).await?;
+        let prefix = format!("{}:", self.namespace);
+        Ok(keys
+            .into_iter()
+            .map(|k| k.strip_prefix(&prefix).map(str::to_owned).unwrap_or(k))
+            .collect())
     }
 
     /// Expose the raw client for cases that need a custom connection.
