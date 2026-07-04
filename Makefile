@@ -14,7 +14,7 @@ dev:
 	cargo build --all-features
 
 collector:
-	HTTP_PORT=20000 cargo run -p collector -- start
+	HTTP_PORT=15000 cargo run -p collector -- start
 
 admin-api:
 	HTTP_PORT=20001 cargo run -p admin-api -- start
