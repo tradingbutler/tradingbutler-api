@@ -55,12 +55,20 @@ Field names on the wire are short (serde renames): `key`, `val`, `tms`, `tag`, `
 `uid`, `cid`. The collector dispatches on `cat` (category):
 
 - **`broker`** — `val` is a `Broker { id, nm→name, ak→api_key }`. The collector stores it at
-  `{ns}:broker:{id}` (hash: `id`, `name`, `api_key`) and remembers it for the connection.
+  `{ns}:broker:{id}` (hash: `id`, `name`, `api_key`) and remembers it for the connection. It also
+  reads that broker's `symbol_map` hash field (JSON `{alias: canonical}`, e.g.
+  `{"BITCOIN":"BTCUSD"}`) and attaches it to the in-memory `Broker` (`symbol_map` is
+  `#[serde(skip)]` — never on the wire) for use by `live` messages on this connection.
   The DLL **SHA-512–hashes** the API key before sending; `api_key` on the wire is the hex digest.
 - **`live`** — must arrive after a `broker` message on the same connection. `val` is an `MT5Event`
-  (symbol/timeframe/info/tick/diffs). The collector, in one pipeline, `XADD`s to
+  (symbol/timeframe/info/tick/diffs). Before storing, the collector normalizes the message `key`
+  (broker's own symbol string, e.g. `BITCOIN`) through `Broker::canonical_symbol` — if this broker
+  has a `symbol_map` entry for it, the canonical code (e.g. `BTCUSD`) is stored instead; if the
+  broker has a non-empty `symbol_map` but no entry for this particular key, it's stored as-is and a
+  warning is logged; if the broker has no `symbol_map` at all, it's stored as-is with no warning
+  (normalization is opt-in per broker). The collector, in one pipeline, `XADD`s to
   `{ns}:{id}:live` (trimmed to ~1000 entries) and `HSET`s the latest value into
-  `{ns}:{id}:snapshot` keyed by the message `key` (the symbol).
+  `{ns}:{id}:snapshot` keyed by the (possibly normalized) symbol.
 - Other categories (e.g. `historical:*`) are logged and ignored by the collector today.
 
 ## Redis key layout
@@ -71,7 +79,7 @@ hardcodes the namespace itself.
 
 | Key | Type | Written by | Contents |
 |---|---|---|---|
-| `{ns}:broker:{id}` | hash | collector | `id`, `name`, `api_key` (sha512 hex) |
+| `{ns}:broker:{id}` | hash | collector, admin-api | `id`, `name`, `api_key` (sha512 hex), `allowed_ips`, `open_account_url`, `logo`, `symbol_map` (JSON `{alias: canonical}`) |
 | `{ns}:{id}:live` | stream | collector | fields `conn_id`, `key`, `data` (JSON tick); maxlen ~1000 |
 | `{ns}:{id}:snapshot` | hash | collector | field = symbol/key → latest tick JSON |
 
@@ -109,6 +117,11 @@ All errors are JSON `{ "error": "…" }`.
 - `PUT /api/brokers/{id}/allowed-ips` `{ allowed_ips }` — replace the IP whitelist (empty = no
   restriction). Entries are validated (IP or CIDR), trimmed and de-duplicated. Returns the updated
   broker. `404` if unknown.
+- `PUT /api/brokers/{id}/symbol-map` `{ symbol_map }` (object, alias → canonical code, e.g.
+  `{"BITCOIN":"BTCUSD"}`) — replace this broker's symbol normalization table. Empty map disables
+  normalization for this broker (ticks stored under their raw broker-reported symbol). Keys/values
+  are trimmed; `400` on an empty alias or canonical value. Returns the updated broker. `404` if
+  unknown. Consumed by the collector when handling this broker's `live` messages (see above).
 - `DELETE /api/brokers/{id}` — delete the broker and its `:live` stream + `:snapshot` hash. `204`,
   `404` if unknown.
 

@@ -15,6 +15,7 @@ use ipnet::IpNet;
 use log::{debug, info, warn};
 use redis::streams::StreamMaxlen;
 use rhiaqey_sdk_rs::message::MessageValue;
+use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use tokio::sync::{RwLock, broadcast};
@@ -158,7 +159,7 @@ async fn handle_binary_message(
     match message.category {
         Some(category) => match category.to_lowercase().as_str() {
             "broker" => {
-                let broker: Broker = serde_json::from_value(value)?;
+                let mut broker: Broker = serde_json::from_value(value)?;
                 let broker_key = format!("broker:{}", broker.id);
                 let fields = state.redis.write().await.hgetall(&broker_key).await?;
                 if fields.is_empty() {
@@ -181,6 +182,15 @@ async fn handle_binary_message(
                         client_ip
                     );
                 }
+                if let Some(raw) = fields.get("symbol_map") {
+                    match serde_json::from_str::<HashMap<String, String>>(raw) {
+                        Ok(map) => broker.symbol_map = map,
+                        Err(err) => warn!(
+                            "[{}] broker '{}': invalid symbol_map JSON, ignoring: {err}",
+                            conn_id, broker.id
+                        ),
+                    }
+                }
                 info!("[{}] authenticated broker {}", conn_id, broker.id);
                 return Ok(CollectedValue::Broker(broker));
             }
@@ -191,6 +201,18 @@ async fn handle_binary_message(
                         conn_id
                     );
                     return Ok(CollectedValue::CloseConnection);
+                };
+                let symbol = match b.canonical_symbol(&message.key) {
+                    Some(canonical) => canonical.to_string(),
+                    None => {
+                        if !b.symbol_map.is_empty() {
+                            warn!(
+                                "[{}] broker '{}': no symbol mapping for '{}', storing as-is",
+                                conn_id, b.id, message.key
+                            );
+                        }
+                        message.key.clone()
+                    }
                 };
                 let json = value.to_string();
                 let stream_key = format!("{}:live", b.id);
@@ -206,16 +228,16 @@ async fn handle_binary_message(
                             "*",
                             &[
                                 ("conn_id", conn_id),
-                                ("key", message.key.as_str()),
+                                ("key", symbol.as_str()),
                                 ("data", json.as_str()),
                             ],
                         );
-                        pipe.hset(&ns_snapshot_key, message.key.as_str(), json.as_str());
+                        pipe.hset(&ns_snapshot_key, symbol.as_str(), json.as_str());
                     })
                     .await?;
                 info!(
-                    "[{}] published live message {} to stream {}",
-                    conn_id, message.key, stream_key
+                    "[{}] published live message {} (from '{}') to stream {}",
+                    conn_id, symbol, message.key, stream_key
                 );
             }
             &_ => {

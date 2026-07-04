@@ -8,6 +8,7 @@ use axum::{
 use common::{RedisService, env::Env};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
+use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use uuid::Uuid;
 
@@ -52,6 +53,7 @@ impl AdminApi {
                 put(update_open_account_url),
             )
             .route("/api/brokers/{id}/allowed-ips", put(update_allowed_ips))
+            .route("/api/brokers/{id}/symbol-map", put(update_symbol_map))
             .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
             .with_state(self.redis);
 
@@ -72,6 +74,17 @@ struct Broker {
     open_account_url: String,
     /// Full data URL (`data:image/...;base64,...`) or empty when no logo is set.
     logo: Option<String>,
+    /// Broker-specific alias → canonical symbol code (e.g. `"BITCOIN": "BTCUSD"`),
+    /// applied by the collector before storing a tick.
+    symbol_map: HashMap<String, String>,
+}
+
+/// Parses the `symbol_map` hash field (JSON object) into a map, defaulting to
+/// empty on missing or malformed data.
+fn parse_symbol_map(stored: Option<&String>) -> HashMap<String, String> {
+    stored
+        .and_then(|raw| serde_json::from_str(raw).ok())
+        .unwrap_or_default()
 }
 
 async fn list_brokers(State(redis): State<RedisService>) -> Result<Json<Vec<Broker>>, ApiError> {
@@ -91,6 +104,7 @@ async fn list_brokers(State(redis): State<RedisService>) -> Result<Json<Vec<Brok
         let allowed_ips = parse_ip_list(fields.get("allowed_ips").map(String::as_str));
         let open_account_url = fields.get("open_account_url").cloned().unwrap_or_default();
         let logo = fields.get("logo").filter(|v| !v.is_empty()).cloned();
+        let symbol_map = parse_symbol_map(fields.get("symbol_map"));
         brokers.push(Broker {
             id,
             name,
@@ -98,6 +112,7 @@ async fn list_brokers(State(redis): State<RedisService>) -> Result<Json<Vec<Brok
             allowed_ips,
             open_account_url,
             logo,
+            symbol_map,
         });
     }
     brokers.sort_by(|a, b| a.id.cmp(&b.id));
@@ -276,6 +291,57 @@ async fn update_allowed_ips(
         allowed_ips: parse_ip_list(Some(allowed_ips.as_str())),
         open_account_url: fields.get("open_account_url").cloned().unwrap_or_default(),
         logo: fields.get("logo").filter(|v| !v.is_empty()).cloned(),
+        symbol_map: parse_symbol_map(fields.get("symbol_map")),
+        id,
+    }))
+}
+
+#[derive(Deserialize)]
+struct UpdateSymbolMap {
+    #[serde(default)]
+    symbol_map: HashMap<String, String>,
+}
+
+/// Replace a broker's alias → canonical symbol map. An empty map disables
+/// normalization for this broker (ticks are stored under their raw symbol).
+async fn update_symbol_map(
+    State(redis): State<RedisService>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateSymbolMap>,
+) -> Result<Json<Broker>, ApiError> {
+    let mut redis = redis;
+    let key = broker_key(&id);
+
+    let fields = redis.hgetall(&key).await?;
+    if fields.is_empty() {
+        return Err(ApiError::NotFound(format!("broker '{id}' not found")));
+    }
+
+    let mut symbol_map = HashMap::with_capacity(body.symbol_map.len());
+    for (alias, canonical) in &body.symbol_map {
+        let alias = alias.trim();
+        let canonical = canonical.trim();
+        if alias.is_empty() || canonical.is_empty() {
+            return Err(ApiError::BadRequest(
+                "symbol_map aliases and canonical codes must not be empty".into(),
+            ));
+        }
+        symbol_map.insert(alias.to_owned(), canonical.to_owned());
+    }
+
+    let json = serde_json::to_string(&symbol_map)
+        .map_err(|e| ApiError::Internal(format!("failed to encode symbol_map: {e}")))?;
+    redis.hset(&key, &[("symbol_map", json.as_str())]).await?;
+
+    log::info!("updated symbol_map for broker {id}");
+
+    Ok(Json(Broker {
+        name: fields.get("name").cloned().unwrap_or_default(),
+        has_key: fields.get("api_key").is_some_and(|k| !k.is_empty()),
+        allowed_ips: parse_ip_list(fields.get("allowed_ips").map(String::as_str)),
+        open_account_url: fields.get("open_account_url").cloned().unwrap_or_default(),
+        logo: fields.get("logo").filter(|v| !v.is_empty()).cloned(),
+        symbol_map,
         id,
     }))
 }
