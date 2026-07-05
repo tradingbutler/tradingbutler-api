@@ -270,3 +270,24 @@ async fn discover_brokers(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::broker_id_from_key;
+
+    #[test]
+    fn extracts_bare_broker_id() {
+        assert_eq!(broker_id_from_key("brokers:b1"), Some("b1".to_string()));
+    }
+
+    #[test]
+    fn rejects_derived_live_and_snapshot_keys() {
+        assert_eq!(broker_id_from_key("brokers:b1:live"), None);
+        assert_eq!(broker_id_from_key("brokers:b1:snapshot"), None);
+    }
+
+    #[test]
+    fn rejects_keys_without_the_prefix() {
+        assert_eq!(broker_id_from_key("other:b1"), None);
+    }
+}

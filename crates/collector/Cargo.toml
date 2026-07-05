@@ -19,3 +19,4 @@ bytes = { workspace = true }
 uuid = { workspace = true }
 rhiaqey-sdk-rs = { workspace = true }
 ipnet = { workspace = true }
+subtle = { workspace = true }

@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use subtle::ConstantTimeEq;
 use tokio::sync::{RwLock, broadcast};
 use uuid::Uuid;
 
@@ -43,7 +44,7 @@ impl Collector {
         let ip_source = env.ip_source.clone();
 
         let analytics_connections_key: Arc<str> =
-            format!("analytics:collector:{}:connections", env.id).into();
+            format!("analytics:collector:{}:connections", env.id()).into();
 
         // Clear any stale entries left over from a previous run of this instance —
         // connections that never got a chance to `remove_connection` on crash/restart.
@@ -206,6 +207,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, conn_id: String, 
                 warn!("[{}] websocket closed", conn_id);
                 break;
             }
+            // axum already answers Pings with Pongs at the protocol level; these
+            // still surface here and must not fall into the wildcard arm below,
+            // or a stray keepalive frame silently kills the connection.
+            Message::Ping(_) | Message::Pong(_) => {}
             _ => {
                 warn!(
                     "[{}] websocket received unexpected message: {msg:?}",
@@ -254,7 +259,11 @@ async fn handle_binary_message(
                     );
                 }
                 let stored_key = fields.get("api_key").map(String::as_str).unwrap_or("");
-                if stored_key.is_empty() || stored_key != broker.api_key {
+                let keys_match: bool = stored_key
+                    .as_bytes()
+                    .ct_eq(broker.api_key.as_bytes())
+                    .into();
+                if stored_key.is_empty() || !keys_match {
                     bail!("[{}] invalid api_key for broker '{}'", conn_id, broker.id);
                 }
                 let whitelist = fields.get("allowed_ips").map(String::as_str).unwrap_or("");
@@ -355,4 +364,36 @@ fn ip_allowed(ip: IpAddr, whitelist: &str) -> bool {
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ip_allowed;
+
+    #[test]
+    fn matches_bare_ip() {
+        let ip = "203.0.113.5".parse().unwrap();
+        assert!(ip_allowed(ip, "203.0.113.5"));
+        assert!(!ip_allowed(ip, "203.0.113.6"));
+    }
+
+    #[test]
+    fn matches_cidr_range() {
+        let ip = "10.0.0.42".parse().unwrap();
+        assert!(ip_allowed(ip, "10.0.0.0/8"));
+        assert!(!ip_allowed(ip, "192.168.0.0/16"));
+    }
+
+    #[test]
+    fn checks_every_entry_and_trims_whitespace() {
+        let ip = "203.0.113.5".parse().unwrap();
+        assert!(ip_allowed(ip, "10.0.0.0/8, 203.0.113.5 ,192.168.0.0/16"));
+    }
+
+    #[test]
+    fn rejects_when_whitelist_empty_or_garbage() {
+        let ip = "203.0.113.5".parse().unwrap();
+        assert!(!ip_allowed(ip, ""));
+        assert!(!ip_allowed(ip, "not-an-ip"));
+    }
 }

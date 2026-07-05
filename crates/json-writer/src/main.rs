@@ -18,7 +18,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Healthcheck => common::health::check(&env.http_host, env.http_port).await,
         Command::Start => {
             env_logger::init();
-            info!("starting rate-streamer {}", common::VERSION);
+            info!("starting json-writer {}", common::VERSION);
             let svc = JsonWriter::init(&env).await?;
             svc.start().await
         }

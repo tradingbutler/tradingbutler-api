@@ -23,3 +23,26 @@ impl Broker {
         self.symbol_map.get(raw).map(String::as_str)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Broker;
+    use std::collections::HashMap;
+
+    #[test]
+    fn maps_known_alias_to_canonical_symbol() {
+        let mut symbol_map = HashMap::new();
+        symbol_map.insert("BITCOIN".to_string(), "BTCUSD".to_string());
+        let broker = Broker {
+            symbol_map,
+            ..Broker::default()
+        };
+        assert_eq!(broker.canonical_symbol("BITCOIN"), Some("BTCUSD"));
+    }
+
+    #[test]
+    fn returns_none_for_unmapped_symbol() {
+        let broker = Broker::default();
+        assert_eq!(broker.canonical_symbol("BITCOIN"), None);
+    }
+}

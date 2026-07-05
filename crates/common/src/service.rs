@@ -288,6 +288,19 @@ impl RedisService {
         self.conn.hset_multiple(self.key(key), fields).await
     }
 
+    /// Set a single hash field only if it does not already exist. Returns `true`
+    /// if this call created the field, `false` if it was already present (and
+    /// nothing was changed) — use as an atomic existence guard, e.g. to claim a
+    /// new id before writing the rest of a record's fields.
+    pub async fn hset_nx(
+        &mut self,
+        key: &str,
+        field: &str,
+        value: &str,
+    ) -> Result<bool, RedisError> {
+        self.conn.hset_nx(self.key(key), field, value).await
+    }
+
     /// Delete one or more keys.
     pub async fn del(&mut self, key: &str) -> Result<(), RedisError> {
         self.conn.del(self.key(key)).await

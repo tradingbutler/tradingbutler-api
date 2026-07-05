@@ -176,7 +176,10 @@ async fn create_broker(
     let allowed_ips = normalize_ip_list(&body.allowed_ips)?;
 
     let key = broker_key(&id);
-    if !redis.hgetall(&key).await?.is_empty() {
+    // Atomic existence guard: HSETNX can only succeed for one caller, closing
+    // the race a plain hgetall-then-hset would have (two concurrent creates
+    // both passing the check, one silently clobbering the other's api_key).
+    if !redis.hset_nx(&key, "id", id.as_str()).await? {
         return Err(ApiError::Conflict(format!("broker '{id}' already exists")));
     }
 
@@ -185,7 +188,6 @@ async fn create_broker(
         .hset(
             &key,
             &[
-                ("id", id.as_str()),
                 ("name", name.as_str()),
                 ("api_key", sha512_hex(&api_key).as_str()),
                 ("allowed_ips", allowed_ips.as_str()),
@@ -431,7 +433,7 @@ async fn instance_analytics(
             .values()
             .filter_map(|raw| serde_json::from_str(raw).ok())
             .collect();
-        connections.sort_by(|a, b| a.connected_at.cmp(&b.connected_at));
+        connections.sort_by_key(|c| c.connected_at);
 
         out.push(InstanceAnalytics {
             instance: instance.to_owned(),
@@ -547,7 +549,16 @@ impl IntoResponse for ApiError {
             ApiError::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
             ApiError::NotFound(m) => (StatusCode::NOT_FOUND, m),
             ApiError::Conflict(m) => (StatusCode::CONFLICT, m),
-            ApiError::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m),
+            ApiError::Internal(m) => {
+                // Log the real cause server-side only — the client gets a
+                // generic message so internal details (Redis errors, etc.)
+                // never leak into an HTTP response.
+                log::error!("internal error: {m}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal server error".to_string(),
+                )
+            }
         };
         (status, Json(serde_json::json!({ "error": message }))).into_response()
     }

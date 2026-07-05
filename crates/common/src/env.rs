@@ -4,10 +4,12 @@ use std::path::PathBuf;
 
 #[derive(Envconfig, Debug)]
 pub struct Env {
-    /// Docker sets this to the container's own id automatically, giving each
-    /// scaled replica a distinct value with no compose-level wiring needed.
-    #[envconfig(from = "HOSTNAME")]
-    pub id: String,
+    /// Explicit per-instance id override (e.g. the Makefile sets `ID=collector1`
+    /// for local runs). Unset in Docker — there, `id()` falls back to the
+    /// container's own `HOSTNAME`, giving each scaled replica a distinct value
+    /// with no compose-level wiring needed.
+    #[envconfig(from = "ID")]
+    id: Option<String>,
 
     #[envconfig(from = "REDIS_URL", default = "redis://127.0.0.1")]
     pub redis_url: String,
@@ -34,5 +36,11 @@ pub struct Env {
 impl Env {
     pub fn init() -> Result<Self, Error> {
         Self::init_from_env()
+    }
+
+    pub fn id(&self) -> String {
+        self.id
+            .clone()
+            .unwrap_or_else(|| std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string()))
     }
 }

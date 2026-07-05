@@ -38,11 +38,33 @@ jobs:
           retention-days: 1
           compression-level: 9
 
+  Lint:
+    # runs-on: self-hosted
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          token: ${{ github.token }}
+
+      - name: Install Rust 1.96
+        uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all --all-features -- -D warnings -D dead_code
+
   Build:
     # runs-on: self-hosted
     runs-on: ubuntu-22.04
     needs:
       - Setup
+      - Lint
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -69,6 +91,7 @@ jobs:
     runs-on: ubuntu-22.04
     needs:
       - Setup
+      - Lint
     steps:
       - name: Checkout
         uses: actions/checkout@v7

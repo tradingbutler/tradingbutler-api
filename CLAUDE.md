@@ -21,8 +21,8 @@ MT5 terminals (rhiaqey metatrader DLL)
                                               │
                                        Redis Streams (per broker)
                                               ├─ json-writer    → writes rates.json + brokers.json (SSR)
-                                              ├─ rate-streamer   → (planned) WS fan-out to landing page
-                                              └─ admin-api       → (planned) HTTP API for admin dashboard
+                                              ├─ rate-streamer  → WS fan-out of live ticks to web/
+                                              └─ admin-api      → HTTP API backing admin/ (broker CRUD)
 ```
 
 Transport is **Redis Streams** (`XADD` / `XREAD`, consumer groups), not pub/sub channels. Each
@@ -36,13 +36,14 @@ with explicit `XACK`.
 | `common` | `crates/common` | lib | `RedisService` (streams + hashes), `env::Env`, `VERSION` |
 | `collector` | `crates/collector` | bin | WebSocket server; ingests broker/live messages from MT5 into Redis |
 | `json-writer` | `crates/json-writer` | bin | Consumes live streams, writes `rates.json` + `brokers.json` snapshots |
-| `rate-streamer` | `crates/rate-streamer` | bin | **Stub** — `start()` is a no-op. Planned WS fan-out to the landing page |
+| `rate-streamer` | `crates/rate-streamer` | bin | Broker discovery + broadcast fan-out of live ticks over `/ws` to `web/`. Implemented (not a stub) |
 | `admin-api` | `crates/admin-api` | bin | axum HTTP API backing the `admin/` dashboard. `GET /health`, broker CRUD (see below) |
-| `rhiaqey-sdk-rs` | `sdk` | lib | Vendored fork of the rhiaqey SDK — `GatewayMessage`, `MessageValue`, gateway/channel/producer/settings traits |
-| `rhiaqey-metatrader` | `metatrader` | cdylib + rlib | The **MT5-side gateway DLL** (`gw_*` FFI). Replaces the old `.mq5` EA |
+| `rhiaqey-sdk-rs` | `sdk` | lib | Vendored fork of the rhiaqey SDK — `GatewayMessage`, `MessageValue`, gateway/channel/producer/settings traits. A real git submodule (`.gitmodules`) |
+| `rhiaqey-metatrader` | `metatrader` | cdylib + rlib | The **MT5-side gateway DLL** (`gw_*` FFI), meant to replace the old `.mq5` EA — **not present in this checkout**: no `metatrader/` directory, not listed in root `Cargo.toml`'s `members`, and (unlike `sdk`) not a git submodule either. Only stale `target/` build artifacts remain. Confirm where this code actually lives before assuming any of the below is buildable here |
 
 There is no longer a `core` or `server` crate — those names are gone. The roster of brokers/symbols
-is no longer hardcoded in Rust; brokers register themselves at runtime over the WebSocket.
+is no longer hardcoded in Rust; brokers are provisioned via `admin/`/`admin-api` (see "admin-api
+endpoints" below) and authenticate against that record over the WebSocket.
 
 When adding a new crate: add it to `members` in the root `Cargo.toml`, declare shared deps in
 `[workspace.dependencies]`, and reference them with `{ workspace = true }`.
@@ -126,9 +127,11 @@ All errors are JSON `{ "error": "…" }`.
   `404` if unknown.
 
 This makes admin the source of truth for the broker roster, replacing the dev practice of MT5
-terminals self-registering arbitrary brokers. **Note:** `allowed_ips` is stored but **not yet
-enforced** — wiring it into the `collector` (reject broker/live messages whose client IP is outside
-the whitelist) is a follow-up.
+terminals self-registering arbitrary brokers. `allowed_ips` **is enforced** — the collector
+checks the connecting client's IP against it during the `broker` handshake (`ip_allowed` in
+`crates/collector/src/lib.rs`) and rejects the connection if it doesn't match; there's no
+separate per-`live`-message check since `live` messages only ever follow a successful handshake
+on the same connection.
 
 ## RedisService (`crates/common/src/service.rs`)
 
@@ -158,12 +161,15 @@ svc.ensure_consumer_group("…:live", "json-writer", StreamPosition::NewOnly).aw
 let mut g = svc.group_reader("…:live", "json-writer", "json-writer-b1");
 ```
 
-Also exposes `pipeline`, `set`, `hset`, `del`, `hgetall`, `keys`, `key`, and raw `client()`.
+Also exposes `pipeline`, `set`, `hset`, `hset_nx` (atomic create-if-absent on a single hash
+field — see `admin-api`'s `create_broker`, which uses it as an existence guard to close a
+check-then-act race), `del`, `hgetall`, `keys`, `key`, and raw `client()`.
 
 ## Environment (`crates/common/src/env.rs`, via `envconfig`)
 
 | Variable | Default | Purpose                                                                                        |
 |---|---|------------------------------------------------------------------------------------------------|
+| `ID` | *(none)* | Explicit per-instance id, used by `collector`/`rate-streamer` in analytics keys (`analytics:{component}:{id}:connections`). Read via `Env::id()`, not a plain field — falls back to `HOSTNAME` (or `"unknown"`) when unset, since `envconfig`'s `default` only accepts literals, not a function call |
 | `REDIS_URL` | `redis://127.0.0.1` | Valkey/Redis connection string                                                                 |
 | `REDIS_NAMESPACE` | `tradingbuttler` | Prefix `RedisService` prepends to every key (`{ns}:brokers:{id}`, `{ns}:brokers:{id}:live`, …) |
 | `HTTP_HOST` | `0.0.0.0` | Bind host for collector / admin-api                                                            |
@@ -173,9 +179,15 @@ Also exposes `pipeline`, `set`, `hset`, `del`, `hgetall`, `keys`, `key`, and raw
 | `BROKERS_SNAPSHOT_FILE` | `brokers.json` | json-writer brokers output path                                                                |
 
 There are no `VALKEY_URL`, `PORT`, or `BROKER{1-5}_API_KEY` variables anymore — broker auth is the
-self-registered, sha512-hashed `api_key` carried in the `broker` message.
+sha512-hashed `api_key` carried in the `broker` message, checked against the digest `admin-api`
+stored for that (already-provisioned) broker id.
 
-## The MT5 gateway (`metatrader/`)
+## The MT5 gateway (`metatrader/`) — not present in this checkout
+
+**This directory does not currently exist here** (see the workspace-crates table above) — the
+description below is what `rhiaqey-metatrader` is *designed* to be, carried over from when this
+doc was last written against a checkout that had it. Verify it still applies (or find out where
+this code actually lives now) before relying on any of it.
 
 `rhiaqey-metatrader` is a **`cdylib`** built into the DLL that the MQL5 side loads. The MQL5 sources
 live under `metatrader/metatrader/` (`rhiaqey.mq5`, `rhiaqey.mqh`, `rhiaqey_hash.mqh`). The DLL
@@ -203,10 +215,24 @@ cargo test -p common <name>
 Each binary's `main.rs` installs the rustls ring crypto provider, inits `env_logger`, loads `Env`,
 then `init().await` + `start().await`.
 
-## Stale deployment files — fix before shipping
+`.github/workflows/release.yml` runs on every push to `master`: a `Lint` job
+(`cargo fmt --all -- --check` + `cargo clippy --all --all-features -- -D warnings -D dead_code`)
+gates a `Build` job (`cargo test` + release build) and `Build-Base`/`Publish`, which build and push versioned
+`dimitrmok/tradingbutler-*` Docker images, then auto-commit a version bump + tag. There's no
+separate integration-test stage — `cargo test` coverage is currently limited to pure/parsing
+logic (see each crate's `#[cfg(test)] mod tests`), not the Redis-/network-dependent handler
+bodies.
 
-- `api/Dockerfile` still builds and runs a `server` binary (`cargo build --release -p server`) that
-  no longer exists. It needs to build the real binaries (`collector`, `json-writer`, …) and copy
-  `crates/`, `sdk/`, `metatrader/` into the build context.
-- root `docker-compose.yml` still defines a single `api` service with `VALKEY_URL` / `PORT` /
-  `BROKER*_API_KEY`. The backend is now multiple binaries on Redis Streams with the env vars above.
+## Deployment
+
+There is no root `docker-compose.yml`/`api/Dockerfile` anymore (an earlier, single-service
+version of both existed and is long gone) — production deploy is `env/docker-compose.yaml` +
+`env/traefik.yaml` (see root `CLAUDE.md`), and each binary has its own Dockerfile under
+`api/docker/{base,collector,json-writer,rate-streamer,admin-api}/Dockerfile`, built via
+`make docker-<name>` from this directory (`base` first — the others take it as `BASE_IMAGE`).
+
+`admin`/`admin-api` aren't actually wired for live traffic in `env/docker-compose.yaml` yet
+(the `admin` service's Traefik router points at an entrypoint that doesn't exist, and none of
+`admin_api`/`json_writer`/`rate_streamer`'s entrypoints are published) — see the comments on
+those services in `env/docker-compose.yaml` and `env/traefik.yaml` before assuming either is
+reachable in production as currently configured.

@@ -10,7 +10,7 @@ use common::{RedisService, StreamPosition, env::Env};
 use futures_util::StreamExt;
 use log::{debug, info, warn};
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -53,7 +53,7 @@ impl RateStreamer {
         let ip_source = env.ip_source.clone();
 
         let analytics_connections_key: Arc<str> =
-            format!("analytics:rate-streamer:{}:connections", env.id).into();
+            format!("analytics:rate-streamer:{}:connections", env.id()).into();
 
         // Clear any stale entries left over from a previous run of this instance —
         // connections that never got a chance to `remove_connection` on crash/restart.
@@ -212,6 +212,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, conn_id: String, 
 /// (NewOnly) — no consumer group, no ACK, full fan-out to every instance.
 async fn discover_brokers(mut redis: RedisService, tx: broadcast::Sender<Arc<String>>) {
     let mut active: HashSet<String> = HashSet::new();
+    let mut readers: HashMap<String, tokio::task::JoinHandle<()>> = HashMap::new();
     let mut interval = tokio::time::interval(DISCOVERY_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -228,6 +229,23 @@ async fn discover_brokers(mut redis: RedisService, tx: broadcast::Sender<Arc<Str
             }
         };
 
+        let current_ids: HashSet<String> = keys
+            .iter()
+            .filter_map(|key| broker_id_from_key(key))
+            .collect();
+
+        // A broker that vanished from Redis was deleted via admin-api — stop its
+        // stream reader task instead of leaving it blocked forever on a stream
+        // that no longer exists.
+        let removed: Vec<String> = active.difference(&current_ids).cloned().collect();
+        for broker_id in removed {
+            active.remove(&broker_id);
+            if let Some(handle) = readers.remove(&broker_id) {
+                handle.abort();
+            }
+            info!("broker {} deleted, stopped stream reader", broker_id);
+        }
+
         for key in keys {
             let Some(broker_id) = broker_id_from_key(&key) else {
                 continue;
@@ -240,7 +258,7 @@ async fn discover_brokers(mut redis: RedisService, tx: broadcast::Sender<Arc<Str
                 let tx = tx.clone();
                 let bid = broker_id.clone();
 
-                tokio::spawn(async move {
+                let handle = tokio::spawn(async move {
                     let live_key = format!("brokers:{}:live", bid);
                     let stream = reader.stream_reader(live_key, StreamPosition::NewOnly);
                     futures_util::pin_mut!(stream);
@@ -268,6 +286,7 @@ async fn discover_brokers(mut redis: RedisService, tx: broadcast::Sender<Arc<Str
                         }
                     }
                 });
+                readers.insert(broker_id.clone(), handle);
             }
         }
     }
@@ -278,4 +297,32 @@ fn string_field(map: &std::collections::HashMap<String, redis::Value>, key: &str
     map.get(key)
         .and_then(|v| redis::from_redis_value(v.clone()).ok())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{broker_id_from_key, string_field};
+    use std::collections::HashMap;
+
+    #[test]
+    fn extracts_bare_broker_id() {
+        assert_eq!(broker_id_from_key("brokers:b1"), Some("b1".to_string()));
+    }
+
+    #[test]
+    fn rejects_derived_live_and_snapshot_keys() {
+        assert_eq!(broker_id_from_key("brokers:b1:live"), None);
+        assert_eq!(broker_id_from_key("brokers:b1:snapshot"), None);
+    }
+
+    #[test]
+    fn string_field_extracts_and_defaults_to_empty() {
+        let mut map = HashMap::new();
+        map.insert(
+            "key".to_string(),
+            redis::Value::BulkString(b"EURUSD".to_vec()),
+        );
+        assert_eq!(string_field(&map, "key"), "EURUSD");
+        assert_eq!(string_field(&map, "missing"), "");
+    }
 }
