@@ -2,7 +2,6 @@
 resolver = "3"
 members = [
     "sdk",
-    "crates/emulator",
     "crates/admin-api",
     "crates/collector",
     "crates/common",

@@ -535,18 +535,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "emulator"
-version = "0.1.17"
-dependencies = [
- "anyhow",
- "common",
- "env_logger",
- "log",
- "rustls",
- "tokio",
-]
-
-[[package]]
 name = "env_filter"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1258,7 +1246,7 @@ dependencies = [
 
 [[package]]
 name = "rate-streamer"
-version = "0.1.0"
+version = "0.1.17"
 dependencies = [
  "anyhow",
  "axum",
