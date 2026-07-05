@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-const BROKER_KEY_PREFIX: &str = "broker:";
+const BROKER_KEY_PREFIX: &str = "brokers:";
 const CONSUMER_GROUP: &str = "json-writer";
 const DISCOVERY_INTERVAL: Duration = Duration::from_secs(30);
 const BROKERS_WRITE_INTERVAL: Duration = Duration::from_secs(60);

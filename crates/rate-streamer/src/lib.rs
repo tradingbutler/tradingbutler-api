@@ -15,7 +15,7 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
-const BROKER_KEY_PREFIX: &str = "broker:";
+const BROKER_KEY_PREFIX: &str = "brokers:";
 const DISCOVERY_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Slow clients that fall behind by this many messages are disconnected.
