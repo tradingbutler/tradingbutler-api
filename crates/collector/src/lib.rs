@@ -290,7 +290,7 @@ async fn handle_binary_message(
                     Some(canonical) => canonical.to_string(),
                     None => {
                         if !b.symbol_map.is_empty() {
-                            warn!(
+                            debug!(
                                 "[{}] broker '{}': no symbol mapping for '{}', storing as-is",
                                 conn_id, b.id, message.key
                             );
