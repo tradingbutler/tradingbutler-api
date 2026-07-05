@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "admin-api"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "anyhow",
  "axum",
@@ -336,7 +336,7 @@ dependencies = [
 
 [[package]]
 name = "collector"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "anyhow",
  "axum",
@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "common"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -536,7 +536,7 @@ dependencies = [
 
 [[package]]
 name = "emulator"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "anyhow",
  "common",
@@ -1001,7 +1001,7 @@ dependencies = [
 
 [[package]]
 name = "json-writer"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "anyhow",
  "axum",
