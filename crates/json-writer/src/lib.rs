@@ -15,6 +15,15 @@ const DISCOVERY_INTERVAL: Duration = Duration::from_secs(30);
 const BROKERS_WRITE_INTERVAL: Duration = Duration::from_secs(60);
 const RATES_WRITE_INTERVAL: Duration = Duration::from_secs(30);
 
+/// `brokers:*` also matches the derived `brokers:{id}:live` and
+/// `brokers:{id}:snapshot` keys; broker ids never contain `:` (enforced by
+/// admin-api), so reject anything with a further colon after the prefix.
+#[inline]
+fn broker_id_from_key(key: &str) -> Option<String> {
+    let id = key.strip_prefix(BROKER_KEY_PREFIX)?;
+    (!id.contains(':')).then(|| id.to_string())
+}
+
 /// Sent from the discovery task to the rates-writer loop.
 enum SnapshotEvent {
     /// A broker's snapshot hash changed — merge these symbol values in.
@@ -144,7 +153,7 @@ async fn discover_brokers(
 
         let current_ids: HashSet<String> = keys
             .iter()
-            .filter_map(|key| key.strip_prefix(BROKER_KEY_PREFIX).map(str::to_owned))
+            .filter_map(|key| broker_id_from_key(key))
             .collect();
 
         // A broker that vanished from Redis was deleted via admin-api — stop its
@@ -163,10 +172,9 @@ async fn discover_brokers(
         let mut brokers: HashMap<String, HashMap<String, String>> = HashMap::new();
 
         for key in keys {
-            let Some(broker_id) = key.strip_prefix(BROKER_KEY_PREFIX) else {
+            let Some(broker_id) = broker_id_from_key(&key) else {
                 continue;
             };
-            let broker_id = broker_id.to_string();
 
             match redis.hgetall(&key).await {
                 Ok(mut fields) => {
