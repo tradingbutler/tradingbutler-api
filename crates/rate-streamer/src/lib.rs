@@ -20,6 +20,15 @@ use uuid::Uuid;
 const BROKER_KEY_PREFIX: &str = "brokers:";
 const DISCOVERY_INTERVAL: Duration = Duration::from_secs(30);
 
+/// `brokers:*` also matches the derived `brokers:{id}:live` and
+/// `brokers:{id}:snapshot` keys; broker ids never contain `:` (enforced by
+/// admin-api), so reject anything with a further colon after the prefix.
+#[inline]
+fn broker_id_from_key(key: &str) -> Option<String> {
+    let id = key.strip_prefix(BROKER_KEY_PREFIX)?;
+    (!id.contains(':')).then(|| id.to_string())
+}
+
 /// Slow clients that fall behind by this many messages are disconnected.
 const BROADCAST_CAPACITY: usize = 1024;
 
@@ -220,11 +229,9 @@ async fn discover_brokers(mut redis: RedisService, tx: broadcast::Sender<Arc<Str
         };
 
         for key in keys {
-            let Some(broker_id) = key.strip_prefix(BROKER_KEY_PREFIX) else {
+            let Some(broker_id) = broker_id_from_key(&key) else {
                 continue;
             };
-
-            let broker_id = broker_id.to_string();
 
             if active.insert(broker_id.clone()) {
                 info!("discovered broker {}, starting stream reader", broker_id);
