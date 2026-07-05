@@ -160,7 +160,7 @@ async fn handle_binary_message(
         Some(category) => match category.to_lowercase().as_str() {
             "broker" => {
                 let mut broker: Broker = serde_json::from_value(value)?;
-                let broker_key = format!("broker:{}", broker.id);
+                let broker_key = format!("brokers:{}", broker.id);
                 let fields = state.redis.write().await.hgetall(&broker_key).await?;
                 if fields.is_empty() {
                     bail!(
@@ -215,8 +215,8 @@ async fn handle_binary_message(
                     }
                 };
                 let json = value.to_string();
-                let stream_key = format!("{}:live", b.id);
-                let snapshot_key = format!("{}:snapshot", b.id);
+                let stream_key = format!("brokers:{}:live", b.id);
+                let snapshot_key = format!("brokers:{}:snapshot", b.id);
                 let mut redis = state.redis.write().await;
                 let ns_stream_key = redis.key(&stream_key);
                 let ns_snapshot_key = redis.key(&snapshot_key);

@@ -180,8 +180,8 @@ async fn discover_brokers(
             if active.insert(broker_id.clone()) {
                 info!("discovered broker {}, joining consumer group", broker_id);
 
-                let stream_key = format!("{}:live", broker_id);
-                let snapshot_key = format!("{}:snapshot", broker_id);
+                let stream_key = format!("brokers:{}:live", broker_id);
+                let snapshot_key = format!("brokers:{}:snapshot", broker_id);
                 let mut setup_redis = redis.clone();
 
                 if let Err(e) = setup_redis
@@ -209,8 +209,8 @@ async fn discover_brokers(
                 let bid = broker_id.clone();
 
                 let handle = tokio::spawn(async move {
-                    let live_key = format!("{}:live", bid);
-                    let snapshot_key = format!("{}:snapshot", bid);
+                    let live_key = format!("brokers:{}:live", bid);
+                    let snapshot_key = format!("brokers:{}:snapshot", bid);
                     let stream = reader_redis.group_reader(
                         live_key.clone(),
                         CONSUMER_GROUP,

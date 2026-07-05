@@ -22,7 +22,7 @@ use uuid::Uuid;
 /// - `allowed_ips` is a comma-separated list of IPs/CIDRs permitted to connect
 ///   for this broker. Empty means no restriction. Enforcement lives in the
 ///   `collector`; admin-api is the source of truth. See `api/CLAUDE.md`.
-const BROKER_KEY_PREFIX: &str = "broker:";
+const BROKER_KEY_PREFIX: &str = "brokers:";
 
 fn broker_key(id: &str) -> String {
     format!("{BROKER_KEY_PREFIX}{id}")
@@ -358,8 +358,8 @@ async fn delete_broker(
         return Err(ApiError::NotFound(format!("broker '{id}' not found")));
     }
 
-    let live = format!("{id}:live");
-    let snapshot = format!("{id}:snapshot");
+    let live = format!("brokers:{id}:live");
+    let snapshot = format!("brokers:{id}:snapshot");
     let ns_key = redis.key(&key);
     let ns_live = redis.key(&live);
     let ns_snapshot = redis.key(&snapshot);

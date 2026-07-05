@@ -15,9 +15,9 @@ broker info + live ticks into the `collector`; the collector writes them into pe
 MT5 terminals (rhiaqey metatrader DLL)
   └─ WebSocket  →  collector  (/ws, binary GatewayMessage frames)
                       │
-                      ├─ category "broker" → HSET {ns}:broker:{id}
-                      └─ category "live"   → XADD {ns}:{id}:live  (maxlen ~1000)
-                                           + HSET {ns}:{id}:snapshot  field=key
+                      ├─ category "broker" → HSET {ns}:brokers:{id}
+                      └─ category "live"   → XADD {ns}:brokers:{id}:live  (maxlen ~1000)
+                                           + HSET {ns}:brokers:{id}:snapshot  field=key
                                               │
                                        Redis Streams (per broker)
                                               ├─ json-writer    → writes rates.json + brokers.json (SSR)

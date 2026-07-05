@@ -146,7 +146,7 @@ async fn discover_brokers(mut redis: RedisService, tx: broadcast::Sender<Arc<Str
                 let bid = broker_id.clone();
 
                 tokio::spawn(async move {
-                    let live_key = format!("{}:live", bid);
+                    let live_key = format!("brokers:{}:live", bid);
                     let stream = reader.stream_reader(live_key, StreamPosition::NewOnly);
                     futures_util::pin_mut!(stream);
 
