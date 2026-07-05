@@ -319,7 +319,7 @@ async fn handle_binary_message(
                         pipe.hset(&ns_snapshot_key, symbol.as_str(), json.as_str());
                     })
                     .await?;
-                info!(
+                debug!(
                     "[{}] published live message {} (from '{}') to stream {}",
                     conn_id, symbol, message.key, stream_key
                 );
