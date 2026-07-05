@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "admin-api"
-version = "0.1.20"
+version = "0.1.21"
 dependencies = [
  "anyhow",
  "axum",
@@ -336,7 +336,7 @@ dependencies = [
 
 [[package]]
 name = "collector"
-version = "0.1.20"
+version = "0.1.21"
 dependencies = [
  "anyhow",
  "axum",
@@ -378,7 +378,7 @@ dependencies = [
 
 [[package]]
 name = "common"
-version = "0.1.20"
+version = "0.1.21"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -990,7 +990,7 @@ dependencies = [
 
 [[package]]
 name = "json-writer"
-version = "0.1.20"
+version = "0.1.21"
 dependencies = [
  "anyhow",
  "axum",
@@ -1247,7 +1247,7 @@ dependencies = [
 
 [[package]]
 name = "rate-streamer"
-version = "0.1.20"
+version = "0.1.21"
 dependencies = [
  "anyhow",
  "axum",
