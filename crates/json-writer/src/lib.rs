@@ -15,6 +15,15 @@ const DISCOVERY_INTERVAL: Duration = Duration::from_secs(30);
 const BROKERS_WRITE_INTERVAL: Duration = Duration::from_secs(60);
 const RATES_WRITE_INTERVAL: Duration = Duration::from_secs(30);
 
+/// Sent from the discovery task to the rates-writer loop.
+enum SnapshotEvent {
+    /// A broker's snapshot hash changed — merge these symbol values in.
+    Update(String, HashMap<String, String>),
+    /// The broker's key disappeared from Redis (deleted via admin-api) —
+    /// drop it from the rates state entirely.
+    Removed(String),
+}
+
 pub struct JsonWriter {
     redis: RedisService,
     snapshot_path: PathBuf,
@@ -37,7 +46,7 @@ impl JsonWriter {
     pub async fn start(self) -> anyhow::Result<()> {
         tokio::spawn(serve_healthz(self.bind));
 
-        let (tx, mut rx) = mpsc::unbounded_channel::<(String, HashMap<String, String>)>();
+        let (tx, mut rx) = mpsc::unbounded_channel::<SnapshotEvent>();
 
         tokio::spawn(discover_brokers(
             self.redis.clone(),
@@ -54,7 +63,7 @@ impl JsonWriter {
             tokio::select! {
                 msg = rx.recv() => {
                     match msg {
-                        Some((broker_id, snapshot)) => {
+                        Some(SnapshotEvent::Update(broker_id, snapshot)) => {
                             debug!("[{}] received snapshot with {} symbols", broker_id, snapshot.len());
                             let broker_state = state.entry(broker_id).or_default();
                             for (symbol, json_str) in snapshot {
@@ -62,6 +71,11 @@ impl JsonWriter {
                                     Ok(v) => { broker_state.insert(symbol, v); }
                                     Err(e) => warn!("failed to parse snapshot value: {e}"),
                                 }
+                            }
+                        }
+                        Some(SnapshotEvent::Removed(broker_id)) => {
+                            if state.remove(&broker_id).is_some() {
+                                info!("[{}] broker deleted, dropped from rates state", broker_id);
                             }
                         }
                         None => break,
@@ -107,9 +121,10 @@ async fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> anyhow::Resu
 async fn discover_brokers(
     mut redis: RedisService,
     brokers_snapshot_path: PathBuf,
-    tx: mpsc::UnboundedSender<(String, HashMap<String, String>)>,
+    tx: mpsc::UnboundedSender<SnapshotEvent>,
 ) {
     let mut active: HashSet<String> = HashSet::new();
+    let mut readers: HashMap<String, tokio::task::JoinHandle<()>> = HashMap::new();
     let mut interval = tokio::time::interval(DISCOVERY_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut next_brokers_write = tokio::time::Instant::now();
@@ -126,6 +141,24 @@ async fn discover_brokers(
                 }
             }
         };
+
+        let current_ids: HashSet<String> = keys
+            .iter()
+            .filter_map(|key| key.strip_prefix(BROKER_KEY_PREFIX).map(str::to_owned))
+            .collect();
+
+        // A broker that vanished from Redis was deleted via admin-api — stop its
+        // reader task (its stream/snapshot are already gone) and drop it from
+        // the rates state so it stops showing up in rates.json.
+        let removed: Vec<String> = active.difference(&current_ids).cloned().collect();
+        for broker_id in removed {
+            active.remove(&broker_id);
+            if let Some(handle) = readers.remove(&broker_id) {
+                handle.abort();
+            }
+            let _ = tx.send(SnapshotEvent::Removed(broker_id.clone()));
+            info!("broker {} deleted, stopped tracking", broker_id);
+        }
 
         let mut brokers: HashMap<String, HashMap<String, String>> = HashMap::new();
 
@@ -164,7 +197,7 @@ async fn discover_brokers(
                 // that arrived before the consumer group was created.
                 match setup_redis.hgetall(&snapshot_key).await {
                     Ok(snapshot) if !snapshot.is_empty() => {
-                        let _ = tx.send((broker_id.clone(), snapshot));
+                        let _ = tx.send(SnapshotEvent::Update(broker_id.clone(), snapshot));
                     }
                     Ok(_) => {}
                     Err(e) => warn!("[{}] initial snapshot read error: {e}", broker_id),
@@ -175,7 +208,7 @@ async fn discover_brokers(
                 let tx = tx.clone();
                 let bid = broker_id.clone();
 
-                tokio::spawn(async move {
+                let handle = tokio::spawn(async move {
                     let live_key = format!("{}:live", bid);
                     let snapshot_key = format!("{}:snapshot", bid);
                     let stream = reader_redis.group_reader(
@@ -190,7 +223,8 @@ async fn discover_brokers(
                             Ok(entry) => {
                                 match snapshot_redis.hgetall(&snapshot_key).await {
                                     Ok(snapshot) => {
-                                        let _ = tx.send((bid.clone(), snapshot));
+                                        let _ =
+                                            tx.send(SnapshotEvent::Update(bid.clone(), snapshot));
                                     }
                                     Err(e) => warn!("[{}] hgetall error: {e}", bid),
                                 }
@@ -201,10 +235,17 @@ async fn discover_brokers(
                                     warn!("[{}] ack error: {e}", bid);
                                 }
                             }
-                            Err(e) => warn!("[{}] stream error: {e}", bid),
+                            Err(e) => {
+                                // The stream/consumer group is gone, most likely because
+                                // the broker was deleted; discovery will clean this up
+                                // (and abort this task) on its next tick.
+                                warn!("[{}] stream error: {e}", bid);
+                                break;
+                            }
                         }
                     }
                 });
+                readers.insert(broker_id.clone(), handle);
             }
         }
 
