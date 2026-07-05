@@ -63,8 +63,8 @@ impl RedisService {
         })
     }
 
-    /// Prefix a bare key with the configured namespace (e.g. `broker:1` ->
-    /// `tradingbuttler:broker:1`). Every method on this type that takes a Redis
+    /// Prefix a bare key with the configured namespace (e.g. `brokers:1` ->
+    /// `tradingbuttler:brokers:1`). Every method on this type that takes a Redis
     /// key does this internally; use this directly only when building a raw
     /// `redis::Pipeline` (see [`pipeline`](Self::pipeline)), which bypasses
     /// `RedisService` and needs already-namespaced keys.

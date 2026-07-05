@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use uuid::Uuid;
 
-/// Brokers are stored as a hash at `{namespace}:broker:{id}` with fields
+/// Brokers are stored as a hash at `{namespace}:brokers:{id}` with fields
 /// `id`, `name`, `api_key`, `allowed_ips`.
 ///
 /// - `api_key` is the **SHA-512 hex digest** of the plaintext key — the same

@@ -55,7 +55,7 @@ Field names on the wire are short (serde renames): `key`, `val`, `tms`, `tag`, `
 `uid`, `cid`. The collector dispatches on `cat` (category):
 
 - **`broker`** — `val` is a `Broker { id, nm→name, ak→api_key }`. The collector stores it at
-  `{ns}:broker:{id}` (hash: `id`, `name`, `api_key`) and remembers it for the connection. It also
+  `{ns}:brokers:{id}` (hash: `id`, `name`, `api_key`) and remembers it for the connection. It also
   reads that broker's `symbol_map` hash field (JSON `{alias: canonical}`, e.g.
   `{"BITCOIN":"BTCUSD"}`) and attaches it to the in-memory `Broker` (`symbol_map` is
   `#[serde(skip)]` — never on the wire) for use by `live` messages on this connection.
@@ -67,32 +67,32 @@ Field names on the wire are short (serde renames): `key`, `val`, `tms`, `tag`, `
   broker has a non-empty `symbol_map` but no entry for this particular key, it's stored as-is and a
   warning is logged; if the broker has no `symbol_map` at all, it's stored as-is with no warning
   (normalization is opt-in per broker). The collector, in one pipeline, `XADD`s to
-  `{ns}:{id}:live` (trimmed to ~1000 entries) and `HSET`s the latest value into
-  `{ns}:{id}:snapshot` keyed by the (possibly normalized) symbol.
+  `{ns}:brokers:{id}:live` (trimmed to ~1000 entries) and `HSET`s the latest value into
+  `{ns}:brokers:{id}:snapshot` keyed by the (possibly normalized) symbol.
 - Other categories (e.g. `historical:*`) are logged and ignored by the collector today.
 
 ## Redis key layout
 
 `{ns}` is the `REDIS_NAMESPACE` env var (see below); `RedisService` prepends it automatically, so
-every crate builds/consumes **bare** keys (`broker:{id}`, `{id}:live`, `{id}:snapshot`) and never
+every crate builds/consumes **bare** keys (`brokers:{id}`, `brokers:{id}:live`, `brokers:{id}:snapshot`) and never
 hardcodes the namespace itself.
 
-| Key | Type | Written by | Contents |
-|---|---|---|---|
-| `{ns}:broker:{id}` | hash | collector, admin-api | `id`, `name`, `api_key` (sha512 hex), `allowed_ips`, `open_account_url`, `logo`, `symbol_map` (JSON `{alias: canonical}`) |
-| `{ns}:{id}:live` | stream | collector | fields `conn_id`, `key`, `data` (JSON tick); maxlen ~1000 |
-| `{ns}:{id}:snapshot` | hash | collector | field = symbol/key → latest tick JSON |
+| Key                          | Type | Written by | Contents |
+|------------------------------|---|---|---|
+| `{ns}:brokers:{id}`          | hash | collector, admin-api | `id`, `name`, `api_key` (sha512 hex), `allowed_ips`, `open_account_url`, `logo`, `symbol_map` (JSON `{alias: canonical}`) |
+| `{ns}:brokers:{id}:live`     | stream | collector | fields `conn_id`, `key`, `data` (JSON tick); maxlen ~1000 |
+| `{ns}:brokers:{id}:snapshot` | hash | collector | field = symbol/key → latest tick JSON |
 
 The old `latest:{symbol}` / `baseline:{symbol}` keys and the `prices` pub/sub channel no longer exist.
 
 ## json-writer behavior
 
-- A discovery loop scans `broker:*` every **30s**. For each broker it (a) refreshes
+- A discovery loop scans `brokers:*` every **30s**. For each broker it (a) refreshes
   `brokers.json` (all broker hashes, **with `api_key` stripped**) and (b) the first time it sees a
   broker, ensures a `json-writer` consumer group on `{id}:live` (`NewOnly`) and spawns
   a reader task.
 - Each reader uses `group_reader` (consumer `json-writer-{id}`); on every entry it re-reads the
-  whole `{id}:snapshot` hash, forwards it to the writer task, and `XACK`s.
+  whole `brokers:{id}:snapshot` hash, forwards it to the writer task, and `XACK`s.
 - The writer task accumulates `broker_id → symbol → value` and writes `rates.json` **atomically**
   (write to `*.tmp`, then rename). `brokers.json` is written the same way.
 - Output paths come from `JSON_SNAPSHOT_FILE` (`rates.json`) and `BROKERS_SNAPSHOT_FILE`
@@ -106,7 +106,7 @@ All errors are JSON `{ "error": "…" }`.
 - `GET /api/brokers` — list as `[{ id, name, has_key, allowed_ips }]`. Never returns the key/hash;
   `has_key` is false when the key was revoked or never set.
 - `POST /api/brokers` `{ id, name, allowed_ips? }` — create a broker. Generates a random plaintext
-  key, stores `{ns}:broker:{id}` with `api_key` = its **SHA-512 hex digest** (same hashing
+  key, stores `{ns}:brokers:{id}` with `api_key` = its **SHA-512 hex digest** (same hashing
   the MT5 DLL applies, so a terminal authenticating with the plaintext key matches), and returns
   `{ id, name, api_key }` **once** — the plaintext is never persisted. `409` if the id exists, `400`
   on empty fields, an id containing whitespace/`:`, or an invalid IP/CIDR.
@@ -162,15 +162,15 @@ Also exposes `pipeline`, `set`, `hset`, `del`, `hgetall`, `keys`, `key`, and raw
 
 ## Environment (`crates/common/src/env.rs`, via `envconfig`)
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `REDIS_URL` | `redis://127.0.0.1` | Valkey/Redis connection string |
-| `REDIS_NAMESPACE` | `tradingbuttler` | Prefix `RedisService` prepends to every key (`{ns}:broker:{id}`, `{ns}:{id}:live`, …) |
-| `HTTP_HOST` | `0.0.0.0` | Bind host for collector / admin-api |
-| `HTTP_PORT` | `20000` | Bind port for collector / admin-api |
-| `IP_SOURCE` | `ConnectInfo` | `axum-client-ip` source for resolving client IP |
-| `JSON_SNAPSHOT_FILE` | `rates.json` | json-writer rates output path |
-| `BROKERS_SNAPSHOT_FILE` | `brokers.json` | json-writer brokers output path |
+| Variable | Default | Purpose                                                                                        |
+|---|---|------------------------------------------------------------------------------------------------|
+| `REDIS_URL` | `redis://127.0.0.1` | Valkey/Redis connection string                                                                 |
+| `REDIS_NAMESPACE` | `tradingbuttler` | Prefix `RedisService` prepends to every key (`{ns}:brokers:{id}`, `{ns}:brokers:{id}:live`, …) |
+| `HTTP_HOST` | `0.0.0.0` | Bind host for collector / admin-api                                                            |
+| `HTTP_PORT` | `20000` | Bind port for collector / admin-api                                                            |
+| `IP_SOURCE` | `ConnectInfo` | `axum-client-ip` source for resolving client IP                                                |
+| `JSON_SNAPSHOT_FILE` | `rates.json` | json-writer rates output path                                                                  |
+| `BROKERS_SNAPSHOT_FILE` | `brokers.json` | json-writer brokers output path                                                                |
 
 There are no `VALKEY_URL`, `PORT`, or `BROKER{1-5}_API_KEY` variables anymore — broker auth is the
 self-registered, sha512-hashed `api_key` carried in the `broker` message.
