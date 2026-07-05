@@ -64,6 +64,8 @@ impl AdminApi {
             )
             .route("/api/brokers/{id}/allowed-ips", put(update_allowed_ips))
             .route("/api/brokers/{id}/symbol-map", put(update_symbol_map))
+            .route("/api/analytics/collector", get(collector_analytics))
+            .route("/api/analytics/rate-streamer", get(rate_streamer_analytics))
             .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
             .with_state(self.redis);
 
@@ -386,6 +388,73 @@ async fn delete_broker(
     log::info!("deleted broker {id}");
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// A single live connection, as recorded by `collector`/`rate-streamer` at
+/// `analytics:{component}:{instance}:connections` (hash, field = connection id).
+/// `broker` is only ever populated by `collector`, once a connection authenticates.
+#[derive(Deserialize, Serialize)]
+struct ConnectionInfo {
+    id: String,
+    ip: String,
+    #[serde(default)]
+    broker: Option<String>,
+    connected_at: u64,
+}
+
+#[derive(Serialize)]
+struct InstanceAnalytics {
+    instance: String,
+    connections: Vec<ConnectionInfo>,
+}
+
+/// Scans `analytics:{component}:*:connections` and groups the recorded
+/// connections by instance id (the `HOSTNAME` each service instance runs under).
+async fn instance_analytics(
+    redis: &mut RedisService,
+    component: &str,
+) -> Result<Vec<InstanceAnalytics>, ApiError> {
+    let prefix = format!("analytics:{component}:");
+    let keys = redis.keys(&format!("{prefix}*:connections")).await?;
+
+    let mut out = Vec::with_capacity(keys.len());
+    for key in keys {
+        let Some(instance) = key
+            .strip_prefix(prefix.as_str())
+            .and_then(|s| s.strip_suffix(":connections"))
+        else {
+            continue;
+        };
+
+        let fields = redis.hgetall(&key).await?;
+        let mut connections: Vec<ConnectionInfo> = fields
+            .values()
+            .filter_map(|raw| serde_json::from_str(raw).ok())
+            .collect();
+        connections.sort_by(|a, b| a.connected_at.cmp(&b.connected_at));
+
+        out.push(InstanceAnalytics {
+            instance: instance.to_owned(),
+            connections,
+        });
+    }
+    out.sort_by(|a, b| a.instance.cmp(&b.instance));
+
+    Ok(out)
+}
+
+async fn collector_analytics(
+    State(redis): State<RedisService>,
+) -> Result<Json<Vec<InstanceAnalytics>>, ApiError> {
+    let mut redis = redis;
+    Ok(Json(instance_analytics(&mut redis, "collector").await?))
+}
+
+async fn rate_streamer_analytics(
+    State(redis): State<RedisService>,
+) -> Result<Json<Vec<InstanceAnalytics>>, ApiError> {
+    let mut redis = redis;
+    Ok(Json(instance_analytics(&mut redis, "rate-streamer").await?))
 }
 
 /// 256 bits of entropy as 64 hex chars.
