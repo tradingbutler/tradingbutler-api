@@ -14,16 +14,16 @@ dev:
 	cargo build --all-features
 
 collector:
-	HTTP_PORT=15000 cargo run -p collector -- start
+	ID=collector1 HTTP_PORT=15000 cargo run -p collector -- start
 
 admin-api:
-	HTTP_PORT=20001 cargo run -p admin-api -- start
+	ID=adminapi1 HTTP_PORT=20001 cargo run -p admin-api -- start
 
 rate-streamer:
-	HTTP_PORT=20002 cargo run -p rate-streamer -- start
+	ID=ratestreamer1 HTTP_PORT=20002 cargo run -p rate-streamer -- start
 
 json-writer:
-	HTTP_PORT=20003 cargo run -p json-writer -- start
+	ID=jsonwriter1 HTTP_PORT=20003 cargo run -p json-writer -- start
 
 prod:
 	cargo build --release --all-features
