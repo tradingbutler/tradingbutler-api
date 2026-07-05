@@ -1262,6 +1262,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "axum-client-ip",
  "bytes",
  "common",
  "env_logger",
@@ -1269,6 +1270,7 @@ dependencies = [
  "log",
  "redis",
  "rustls",
+ "serde",
  "serde_json",
  "tokio",
  "uuid",

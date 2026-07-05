@@ -5,14 +5,16 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
+use axum_client_ip::{ClientIp, ClientIpSource};
 use common::{RedisService, StreamPosition, env::Env};
 use futures_util::StreamExt;
 use log::{debug, info, warn};
+use serde::Serialize;
 use std::collections::HashSet;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::broadcast;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::sync::{RwLock, broadcast};
 use uuid::Uuid;
 
 const BROKER_KEY_PREFIX: &str = "brokers:";
@@ -24,47 +26,129 @@ const BROADCAST_CAPACITY: usize = 1024;
 #[derive(Clone)]
 struct AppState {
     tx: broadcast::Sender<Arc<String>>,
+    redis: Arc<RwLock<RedisService>>,
+    analytics_connections_key: Arc<str>,
 }
 
 pub struct RateStreamer {
     redis: RedisService,
     bind: SocketAddr,
+    ip_source: ClientIpSource,
+    analytics_connections_key: Arc<str>,
 }
 
 impl RateStreamer {
     pub async fn init(env: &Env) -> anyhow::Result<Self> {
-        let redis = RedisService::new(&env.redis_url, &env.redis_namespace).await?;
+        let mut redis = RedisService::new(&env.redis_url, &env.redis_namespace).await?;
         let bind: SocketAddr = format!("{}:{}", env.http_host, env.http_port).parse()?;
-        Ok(Self { redis, bind })
+        let ip_source = env.ip_source.clone();
+
+        let analytics_connections_key: Arc<str> =
+            format!("analytics:rate-streamer:{}:connections", env.id).into();
+
+        // Clear any stale entries left over from a previous run of this instance —
+        // connections that never got a chance to `remove_connection` on crash/restart.
+        redis.del(&analytics_connections_key).await?;
+
+        Ok(Self {
+            redis,
+            bind,
+            ip_source,
+            analytics_connections_key,
+        })
     }
 
     pub async fn start(self) -> anyhow::Result<()> {
         let (tx, _) = broadcast::channel(BROADCAST_CAPACITY);
 
-        let state = AppState { tx: tx.clone() };
+        let discovery_redis = self.redis.clone();
+        let state = AppState {
+            tx: tx.clone(),
+            redis: Arc::new(RwLock::new(self.redis)),
+            analytics_connections_key: self.analytics_connections_key,
+        };
 
-        tokio::spawn(discover_brokers(self.redis, tx));
+        tokio::spawn(discover_brokers(discovery_redis, tx));
 
         let router = Router::new()
             .route("/ws", get(ws_handler))
             .merge(common::health::router())
+            .layer(self.ip_source.into_extension())
             .with_state(state);
 
         let listener = tokio::net::TcpListener::bind(self.bind).await?;
         info!("listening on {}", self.bind);
 
-        axum::serve(listener, router).await?;
+        axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await?;
         Ok(())
     }
 }
 
-async fn ws_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
+async fn ws_handler(
+    State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
+    ws: WebSocketUpgrade,
+) -> impl IntoResponse {
+    let conn_id = Uuid::new_v4().to_string();
+    info!("new websocket connection {} from {}", conn_id, ip);
+    ws.on_upgrade(move |socket| handle_socket(socket, state, conn_id, ip))
 }
 
-async fn handle_socket(mut socket: WebSocket, state: AppState) {
-    let conn_id = Uuid::new_v4();
+#[derive(Serialize)]
+struct ConnectionInfo<'a> {
+    id: &'a str,
+    ip: String,
+    connected_at: u64,
+}
+
+fn unix_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Record this connection's analytics entry (hash field = conn_id, so concurrent
+/// connections never race — each task only ever writes its own field).
+async fn record_connection(state: &AppState, conn_id: &str, ip: IpAddr) -> anyhow::Result<()> {
+    let info = ConnectionInfo {
+        id: conn_id,
+        ip: ip.to_string(),
+        connected_at: unix_timestamp(),
+    };
+    let json = serde_json::to_string(&info)?;
+    state
+        .redis
+        .write()
+        .await
+        .hset(
+            &state.analytics_connections_key,
+            &[(conn_id, json.as_str())],
+        )
+        .await?;
+    Ok(())
+}
+
+async fn remove_connection(state: &AppState, conn_id: &str) -> anyhow::Result<()> {
+    state
+        .redis
+        .write()
+        .await
+        .hdel(&state.analytics_connections_key, conn_id)
+        .await?;
+    Ok(())
+}
+
+async fn handle_socket(mut socket: WebSocket, state: AppState, conn_id: String, client_ip: IpAddr) {
     info!("[{conn_id}] websocket connected");
+
+    if let Err(err) = record_connection(&state, &conn_id, client_ip).await {
+        warn!("[{conn_id}] failed to record connection analytics: {err}");
+    }
 
     let mut rx = state.tx.subscribe();
 
@@ -105,6 +189,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 }
             }
         }
+    }
+
+    if let Err(err) = remove_connection(&state, &conn_id).await {
+        warn!("[{conn_id}] failed to remove connection analytics: {err}");
     }
 
     info!("[{conn_id}] websocket disconnected");

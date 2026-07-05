@@ -11,8 +11,10 @@ env_logger = { workspace = true }
 log = { workspace = true }
 rustls = { workspace = true }
 axum = { workspace = true }
+axum-client-ip = { workspace = true }
 bytes = { workspace = true }
 futures-util = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 redis = { workspace = true }
 uuid = { workspace = true }

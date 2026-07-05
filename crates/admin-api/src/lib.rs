@@ -28,6 +28,16 @@ fn broker_key(id: &str) -> String {
     format!("{BROKER_KEY_PREFIX}{id}")
 }
 
+/// `brokers:*` also matches the derived `brokers:{id}:live` (stream) and
+/// `brokers:{id}:snapshot` (hash) keys; broker ids never contain `:` (rejected
+/// by `create_broker`), so reject anything with a further colon after the
+/// prefix. Without this, `HGETALL` on the `:live` stream key throws WRONGTYPE.
+/// #[inline]
+fn broker_id_from_key(key: &str) -> Option<&str> {
+    let id = key.strip_prefix(BROKER_KEY_PREFIX)?;
+    (!id.contains(':')).then_some(id)
+}
+
 #[derive(Clone)]
 pub struct AdminApi {
     redis: RedisService,
@@ -93,12 +103,14 @@ async fn list_brokers(State(redis): State<RedisService>) -> Result<Json<Vec<Brok
 
     let mut brokers = Vec::with_capacity(keys.len());
     for key in keys {
+        let Some(key_id) = broker_id_from_key(&key) else {
+            continue;
+        };
         let fields = redis.hgetall(&key).await?;
         let id = fields
             .get("id")
             .cloned()
-            .or_else(|| key.strip_prefix(BROKER_KEY_PREFIX).map(str::to_owned))
-            .unwrap_or_default();
+            .unwrap_or_else(|| key_id.to_string());
         let name = fields.get("name").cloned().unwrap_or_default();
         let has_key = fields.get("api_key").is_some_and(|k| !k.is_empty());
         let allowed_ips = parse_ip_list(fields.get("allowed_ips").map(String::as_str));

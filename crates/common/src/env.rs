@@ -4,6 +4,9 @@ use std::path::PathBuf;
 
 #[derive(Envconfig, Debug)]
 pub struct Env {
+    #[envconfig(from = "ID")]
+    pub id: String,
+
     #[envconfig(from = "REDIS_URL", default = "redis://127.0.0.1")]
     pub redis_url: String,
 

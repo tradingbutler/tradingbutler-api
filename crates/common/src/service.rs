@@ -293,6 +293,11 @@ impl RedisService {
         self.conn.del(self.key(key)).await
     }
 
+    /// Delete a single field from a hash at `key`.
+    pub async fn hdel(&mut self, key: &str, field: &str) -> Result<(), RedisError> {
+        self.conn.hdel(self.key(key), field).await
+    }
+
     /// Return all fields and values of a hash.
     pub async fn hgetall(
         &mut self,

@@ -6,6 +6,7 @@
       <w>buildx</w>
       <w>busygroup</w>
       <w>gbpusd</w>
+      <w>hdel</w>
       <w>healthz</w>
       <w>hgetall</w>
       <w>mkstream</w>

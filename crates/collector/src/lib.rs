@@ -15,15 +15,18 @@ use ipnet::IpNet;
 use log::{debug, info, warn};
 use redis::streams::StreamMaxlen;
 use rhiaqey_sdk_rs::message::MessageValue;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{RwLock, broadcast};
 use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct AppState {
     pub(crate) redis: Arc<RwLock<RedisService>>,
+    pub(crate) analytics_connections_key: Arc<str>,
 }
 
 #[derive(Clone)]
@@ -35,12 +38,20 @@ pub struct Collector {
 
 impl Collector {
     pub async fn init(env: &Env) -> anyhow::Result<Self> {
-        let redis = RedisService::new(&env.redis_url, &env.redis_namespace).await?;
+        let mut redis = RedisService::new(&env.redis_url, &env.redis_namespace).await?;
         let bind: SocketAddr = format!("{}:{}", env.http_host, env.http_port).parse()?;
         let ip_source = env.ip_source.clone();
 
+        let analytics_connections_key: Arc<str> =
+            format!("analytics:collector:{}:connections", env.id).into();
+
+        // Clear any stale entries left over from a previous run of this instance —
+        // connections that never got a chance to `remove_connection` on crash/restart.
+        redis.del(&analytics_connections_key).await?;
+
         let state = AppState {
             redis: Arc::new(RwLock::new(redis)),
+            analytics_connections_key,
         };
 
         Ok(Self {
@@ -96,14 +107,83 @@ enum CollectedValue {
     CloseConnection,
 }
 
+#[derive(Serialize)]
+struct ConnectionInfo<'a> {
+    id: &'a str,
+    ip: String,
+    broker: Option<&'a str>,
+    connected_at: u64,
+}
+
+fn unix_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Record or update this connection's analytics entry (hash field = conn_id, so
+/// concurrent connections never race — each task only ever writes its own field).
+async fn record_connection(
+    state: &AppState,
+    conn_id: &str,
+    ip: IpAddr,
+    connected_at: u64,
+    broker: Option<&str>,
+) -> anyhow::Result<()> {
+    let info = ConnectionInfo {
+        id: conn_id,
+        ip: ip.to_string(),
+        broker,
+        connected_at,
+    };
+    let json = serde_json::to_string(&info)?;
+    state
+        .redis
+        .write()
+        .await
+        .hset(
+            &state.analytics_connections_key,
+            &[(conn_id, json.as_str())],
+        )
+        .await?;
+    Ok(())
+}
+
+async fn remove_connection(state: &AppState, conn_id: &str) -> anyhow::Result<()> {
+    state
+        .redis
+        .write()
+        .await
+        .hdel(&state.analytics_connections_key, conn_id)
+        .await?;
+    Ok(())
+}
+
 async fn handle_socket(mut socket: WebSocket, state: AppState, conn_id: String, client_ip: IpAddr) {
     let mut conn_broker: Option<Broker> = None;
+    let connected_at = unix_timestamp();
+
+    if let Err(err) = record_connection(&state, &conn_id, client_ip, connected_at, None).await {
+        warn!("[{}] failed to record connection analytics: {err}", conn_id);
+    }
 
     while let Some(Ok(msg)) = socket.recv().await {
         match msg {
             Message::Binary(raw) => {
                 match handle_binary_message(raw, &state, &conn_id, &conn_broker, client_ip).await {
                     Ok(CollectedValue::Broker(broker)) => {
+                        if let Err(err) = record_connection(
+                            &state,
+                            &conn_id,
+                            client_ip,
+                            connected_at,
+                            Some(broker.id.as_str()),
+                        )
+                        .await
+                        {
+                            warn!("[{}] failed to update connection analytics: {err}", conn_id);
+                        }
                         conn_broker = Some(broker);
                     }
                     Ok(CollectedValue::None) => {
@@ -134,6 +214,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, conn_id: String, 
                 break;
             }
         }
+    }
+
+    if let Err(err) = remove_connection(&state, &conn_id).await {
+        warn!("[{}] failed to remove connection analytics: {err}", conn_id);
     }
 
     info!("[{}] connection cleaned up", conn_id);
