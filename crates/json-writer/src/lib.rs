@@ -119,12 +119,43 @@ async fn serve_healthz(bind: SocketAddr) {
     }
 }
 
+/// Writes `path` and a `path.gz` sidecar atomically, so nginx's `gzip_static`
+/// can serve the pre-compressed copy directly instead of gzipping this file
+/// on every single request.
 async fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> anyhow::Result<()> {
-    let json = serde_json::to_string_pretty(value)?;
+    let json = serde_json::to_string(value)?;
+    let gzipped = tokio::task::spawn_blocking({
+        let json = json.clone();
+        move || gzip_compress(json.as_bytes())
+    })
+    .await??;
+
     let tmp = path.with_extension("tmp");
     tokio::fs::write(&tmp, &json).await?;
     tokio::fs::rename(&tmp, path).await?;
+
+    let gz_path = append_ext(path, "gz");
+    let gz_tmp = append_ext(path, "gz.tmp");
+    tokio::fs::write(&gz_tmp, &gzipped).await?;
+    tokio::fs::rename(&gz_tmp, &gz_path).await?;
+
     Ok(())
+}
+
+fn append_ext(path: &Path, ext: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_os_string();
+    name.push(".");
+    name.push(ext);
+    PathBuf::from(name)
+}
+
+fn gzip_compress(data: &[u8]) -> anyhow::Result<Vec<u8>> {
+    use flate2::Compression;
+    use flate2::write::GzEncoder;
+    use std::io::Write;
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
+    encoder.write_all(data)?;
+    Ok(encoder.finish()?)
 }
 
 async fn discover_brokers(
