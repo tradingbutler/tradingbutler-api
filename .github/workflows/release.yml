@@ -21,8 +21,8 @@ permissions:
 
 jobs:
   Setup:
-    runs-on: self-hosted
-    # runs-on: ubuntu-22.04
+    # runs-on: self-hosted
+    runs-on: ubuntu-22.04
     steps:
       - name: Install cargo verison
         uses: dimitrmo/cargo-verison-action@v1.0.49
@@ -39,8 +39,8 @@ jobs:
           compression-level: 9
 
   Lint:
-    runs-on: self-hosted
-    # runs-on: ubuntu-22.04
+    # runs-on: self-hosted
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -60,8 +60,8 @@ jobs:
         run: cargo clippy --all --all-features -- -D warnings -D dead_code
 
   Build:
-    runs-on: self-hosted
-    # runs-on: ubuntu-22.04
+    # runs-on: self-hosted
+    runs-on: ubuntu-22.04
     needs:
       - Setup
       - Lint
@@ -87,8 +87,8 @@ jobs:
         run: cargo build --locked --all-features --release
 
   Build-Base:
-    runs-on: self-hosted
-    # runs-on: ubuntu-22.04
+    # runs-on: self-hosted
+    runs-on: ubuntu-22.04
     needs:
       - Setup
       - Lint
@@ -132,8 +132,8 @@ jobs:
           cache-to: type=gha,mode=max
 
   Publish:
-    runs-on: self-hosted
-    # runs-on: ubuntu-22.04
+    # runs-on: self-hosted
+    runs-on: ubuntu-22.04
     needs:
       - Build
       - Build-Base
@@ -234,8 +234,8 @@ jobs:
             BASE_IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/tradingbutler-base:latest
 
   Commit:
-    runs-on: self-hosted
-    # runs-on: ubuntu-22.04
+    # runs-on: self-hosted
+    runs-on: ubuntu-22.04
     needs:
       - Build
       - Publish
