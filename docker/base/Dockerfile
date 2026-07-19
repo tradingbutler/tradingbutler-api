@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM rust:1.96.1-slim-trixie AS base-image
+FROM rust:1.97.1-slim-trixie AS base-image
 
 # Exposed by BuildKit; used to install the right cross-compiler per platform.
 ARG TARGETPLATFORM
