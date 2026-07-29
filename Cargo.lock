@@ -10,7 +10,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "admin-api"
-version = "0.1.25"
+version = "0.1.26"
 dependencies = [
  "anyhow",
  "axum",
@@ -342,7 +342,7 @@ dependencies = [
 
 [[package]]
 name = "collector"
-version = "0.1.25"
+version = "0.1.26"
 dependencies = [
  "anyhow",
  "axum",
@@ -384,7 +384,7 @@ dependencies = [
 
 [[package]]
 name = "common"
-version = "0.1.25"
+version = "0.1.26"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1010,7 +1010,7 @@ dependencies = [
 
 [[package]]
 name = "json-writer"
-version = "0.1.25"
+version = "0.1.26"
 dependencies = [
  "anyhow",
  "axum",
@@ -1278,7 +1278,7 @@ dependencies = [
 
 [[package]]
 name = "rate-streamer"
-version = "0.1.25"
+version = "0.1.26"
 dependencies = [
  "anyhow",
  "axum",
@@ -1297,9 +1297,9 @@ dependencies = [
 
 [[package]]
 name = "redis"
-version = "1.4.1"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0b9503711b03773e43b31668c7b5bd279ee7cd9b7d18cff7c23a42cc1d08e5a"
+checksum = "3257df217f7eab0044627a268c9cc6cdb60c0c421c88f83ac41c4e31520b6b84"
 dependencies = [
  "arc-swap",
  "arcstr",
