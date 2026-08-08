@@ -10,7 +10,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "admin-api"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "anyhow",
  "axum",
@@ -342,7 +342,7 @@ dependencies = [
 
 [[package]]
 name = "collector"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "anyhow",
  "axum",
@@ -384,7 +384,7 @@ dependencies = [
 
 [[package]]
 name = "common"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1010,7 +1010,7 @@ dependencies = [
 
 [[package]]
 name = "json-writer"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "anyhow",
  "axum",
@@ -1278,7 +1278,7 @@ dependencies = [
 
 [[package]]
 name = "rate-streamer"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "anyhow",
  "axum",
