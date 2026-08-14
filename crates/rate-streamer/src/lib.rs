@@ -293,7 +293,7 @@ async fn discover_brokers(mut redis: RedisService, tx: broadcast::Sender<Arc<Str
 }
 
 /// Extract a UTF-8 string from a redis stream entry's map field.
-fn string_field(map: &std::collections::HashMap<String, redis::Value>, key: &str) -> String {
+fn string_field(map: &HashMap<String, redis::Value>, key: &str) -> String {
     map.get(key)
         .and_then(|v| redis::from_redis_value(v.clone()).ok())
         .unwrap_or_default()

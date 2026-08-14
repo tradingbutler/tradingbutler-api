@@ -1,17 +1,26 @@
 <component name="ProjectDictionaryState">
   <dictionary name="project">
     <words>
+      <w>BTCUSD</w>
+      <w>EURUSD</w>
+      <w>HSETNX</w>
       <w>Valkey</w>
       <w>Verison</w>
+      <w>WRONGTYPE</w>
+      <w>aarch</w>
       <w>buildx</w>
       <w>busygroup</w>
       <w>distroless</w>
       <w>gbpusd</w>
+      <w>gzipping</w>
       <w>hdel</w>
       <w>healthz</w>
       <w>hgetall</w>
+      <w>hset</w>
       <w>mkstream</w>
+      <w>nexec</w>
       <w>rustls</w>
+      <w>tokio</w>
       <w>tradingbutler</w>
       <w>tradingbuttler</w>
       <w>valkey</w>
