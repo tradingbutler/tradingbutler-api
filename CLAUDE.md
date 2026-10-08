@@ -203,6 +203,7 @@ make dev            # cargo build --all-features
 make prod           # cargo build --release --all-features
 make collector      # cargo run -p collector
 make json-writer    # cargo run -p json-writer
+make run            # all four services at once (make -j4); Ctrl-C stops them all
 make test           # cargo test --all --all-features
 make lint           # cargo fmt --all + clippy -D warnings -D dead_code
 make format         # cargo fmt --all

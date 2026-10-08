@@ -25,6 +25,10 @@ rate-streamer:
 json-writer:
 	ID=jsonwriter1 HTTP_PORT=20003 cargo run -p json-writer -- start
 
+# Run all four services together (needs Valkey at REDIS_URL). Ctrl-C stops them all.
+run:
+	$(MAKE) -j4 collector admin-api rate-streamer json-writer
+
 prod:
 	cargo build --release --all-features
 
@@ -62,5 +66,5 @@ docker-rate-streamer:
 	  -f docker/rate-streamer/Dockerfile \
 	  -t dimitrmok/tradingbutler-rate-streamer .
 
-.PHONY: dev collector admin-api rate-streamer json-writer prod format lint test \
+.PHONY: dev run collector admin-api rate-streamer json-writer prod format lint test \
         docker-base docker-collector docker-json-writer docker-admin-api docker-rate-streamer
