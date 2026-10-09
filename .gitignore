@@ -2,3 +2,4 @@ target
 .env
 rates.json
 brokers.json
+rates.json.gz

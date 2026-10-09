@@ -110,7 +110,7 @@ async fn serve_healthz(bind: SocketAddr) {
     let router = common::health::router();
     match tokio::net::TcpListener::bind(bind).await {
         Ok(listener) => {
-            info!("healthz listening on {}", bind);
+            info!("healthz/version listening on {}", bind);
             if let Err(err) = axum::serve(listener, router).await {
                 warn!("healthz server error: {err}");
             }

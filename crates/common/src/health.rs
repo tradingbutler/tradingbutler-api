@@ -1,10 +1,12 @@
-use axum::{Router, http::StatusCode, routing::get};
+use axum::{Json, Router, http::StatusCode, routing::get};
+use serde::Serialize;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-/// A `GET /healthz` route that always returns `200 OK`. Merge into any
-/// service's router so every binary exposes the same liveness check:
+/// `GET /healthz` (always `200 OK`) and `GET /version` (`{"version": "…"}`,
+/// same shape as `web/`'s and `admin/`'s). Merge into any service's router so
+/// every binary exposes the same liveness check and version probe:
 ///
 /// ```rust,ignore
 /// let router = Router::new()
@@ -16,11 +18,24 @@ pub fn router<S>() -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
 {
-    Router::new().route("/healthz", get(healthz))
+    Router::new()
+        .route("/healthz", get(healthz))
+        .route("/version", get(version))
 }
 
 async fn healthz() -> StatusCode {
     StatusCode::OK
+}
+
+#[derive(Serialize)]
+struct Version {
+    version: &'static str,
+}
+
+async fn version() -> Json<Version> {
+    Json(Version {
+        version: crate::VERSION,
+    })
 }
 
 /// Client side of the check above: connect to `host:port` and issue
@@ -63,5 +78,38 @@ pub async fn check(host: &str, port: u16) -> anyhow::Result<()> {
         Ok(())
     } else {
         anyhow::bail!("service at {connect_host}:{port} is unhealthy: {status_line:?}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn get(port: u16, path: &str) -> String {
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        stream
+            .write_all(
+                format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+                    .as_bytes(),
+            )
+            .await
+            .unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).await.unwrap();
+        response
+    }
+
+    #[tokio::test]
+    async fn serves_healthz_and_version() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move { axum::serve(listener, router::<()>()).await });
+
+        check("127.0.0.1", port).await.unwrap();
+
+        let response = get(port, "/version").await;
+        assert!(response.starts_with("HTTP/1.1 200 "));
+        assert!(response.contains("application/json"));
+        assert!(response.ends_with(&format!("{{\"version\":\"{}\"}}", crate::VERSION)));
     }
 }
