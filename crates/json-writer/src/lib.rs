@@ -53,7 +53,7 @@ impl JsonWriter {
     }
 
     pub async fn start(self) -> anyhow::Result<()> {
-        tokio::spawn(serve_healthz(self.bind));
+        tokio::spawn(serve_http(self.bind));
 
         let (tx, mut rx) = mpsc::unbounded_channel::<SnapshotEvent>();
 
@@ -106,16 +106,16 @@ impl JsonWriter {
     }
 }
 
-async fn serve_healthz(bind: SocketAddr) {
+async fn serve_http(bind: SocketAddr) {
     let router = common::health::router();
     match tokio::net::TcpListener::bind(bind).await {
         Ok(listener) => {
-            info!("healthz/version listening on {}", bind);
+            info!("listening on {} (/healthz, /version)", bind);
             if let Err(err) = axum::serve(listener, router).await {
-                warn!("healthz server error: {err}");
+                warn!("http server error: {err}");
             }
         }
-        Err(err) => warn!("failed to bind healthz listener on {bind}: {err}"),
+        Err(err) => warn!("failed to bind http listener on {bind}: {err}"),
     }
 }
 

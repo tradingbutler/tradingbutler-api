@@ -3,3 +3,4 @@ target
 rates.json
 brokers.json
 rates.json.gz
+brokers.json.gz

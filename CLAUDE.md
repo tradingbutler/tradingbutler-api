@@ -37,7 +37,7 @@ with explicit `XACK`.
 | `collector` | `crates/collector` | bin | WebSocket server; ingests broker/live messages from MT5 into Redis |
 | `json-writer` | `crates/json-writer` | bin | Consumes live streams, writes `rates.json` + `brokers.json` snapshots |
 | `rate-streamer` | `crates/rate-streamer` | bin | Broker discovery + broadcast fan-out of live ticks over `/ws` to `web/`. Implemented (not a stub) |
-| `admin-api` | `crates/admin-api` | bin | axum HTTP API backing the `admin/` dashboard. `GET /health`, broker CRUD (see below) |
+| `admin-api` | `crates/admin-api` | bin | axum HTTP API backing the `admin/` dashboard. Broker CRUD (see below) |
 | `rhiaqey-sdk-rs` | `sdk` | lib | Vendored fork of the rhiaqey SDK — `GatewayMessage`, `MessageValue`, gateway/channel/producer/settings traits. A real git submodule (`.gitmodules`) |
 | `rhiaqey-metatrader` | `metatrader` | cdylib + rlib | The **MT5-side gateway DLL** (`gw_*` FFI), meant to replace the old `.mq5` EA — **not present in this checkout**: no `metatrader/` directory, not listed in root `Cargo.toml`'s `members`, and (unlike `sdk`) not a git submodule either. Only stale `target/` build artifacts remain. Confirm where this code actually lives before assuming any of the below is buildable here |
 
@@ -212,6 +212,9 @@ make format         # cargo fmt --all
 cargo build -p common
 cargo test -p common <name>
 ```
+
+Every binary serves `GET /healthz` (200) and `GET /version` (`{"version":"…"}`) on its HTTP port via
+`common::health::router()` (json-writer spawns a small listener just for these).
 
 Each binary's `main.rs` installs the rustls ring crypto provider, inits `env_logger`, loads `Env`,
 then `init().await` + `start().await`.
