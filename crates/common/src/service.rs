@@ -1,10 +1,24 @@
 use async_stream::try_stream;
 use futures_util::Stream;
 use redis::{
-    AsyncCommands, AsyncConnectionConfig, Client, RedisError,
+    AsyncCommands, AsyncConnectionConfig, Client, IntoConnectionInfo, RedisError,
     aio::{ConnectionManager, ConnectionManagerConfig, MultiplexedConnection},
+    io::tcp::{TcpSettings, socket2::TcpKeepalive},
     streams::{StreamId, StreamMaxlen, StreamReadOptions, StreamReadReply},
 };
+use std::time::Duration;
+
+/// TCP keepalive for every connection opened through the client. Managed
+/// Valkey (Aiven) and NATs silently drop idle connections; without probes the
+/// `ConnectionManager` only notices on the next command, which then fails with
+/// a 500 before it reconnects (e.g. the first admin action after a quiet spell).
+fn tcp_settings() -> TcpSettings {
+    let keepalive = TcpKeepalive::new()
+        .with_time(Duration::from_secs(30))
+        .with_interval(Duration::from_secs(10))
+        .with_retries(3);
+    TcpSettings::default().set_keepalive(keepalive)
+}
 
 /// Build a multiplexed connection suitable for blocking reads (XREAD BLOCK).
 ///
@@ -53,7 +67,7 @@ pub struct RedisService {
 
 impl RedisService {
     pub async fn new(url: &str, namespace: &str) -> Result<Self, RedisError> {
-        let client = Client::open(url)?;
+        let client = Client::open(url.into_connection_info()?.set_tcp_settings(tcp_settings()))?;
         let config = ConnectionManagerConfig::new().set_response_timeout(None);
         let conn = ConnectionManager::new_with_config(client.clone(), config).await?;
         Ok(Self {
